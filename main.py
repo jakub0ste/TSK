@@ -2,7 +2,9 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from statsmodels.tsa.arima.model import ARIMA
-#from pmdarima import auto_arima
+
+
+# from pmdarima import auto_arima
 
 
 class KalkulatorPKB:
@@ -23,8 +25,40 @@ class KalkulatorPKB:
 
 
 class PredykcjaPKB:
-    def __int__(self):
-        pass
+
+    def __init__(self, p, d, q):
+        self.p = p
+        self.d = d
+        self.q = q
+        self.coef_AR = None
+
+    def difference(self, series):
+        diff = np.diff(series, n=self.d)
+        return diff
+
+    def fit(self, series):
+        """Funkcja dopasowująca model ARIMA (tu uproszczona)."""
+        series_diff = self.difference(series)
+        n = len(series_diff)
+
+        # W przypadku AR (p)
+        X_AR = np.array([series_diff[i - self.p:i] for i in range(self.p, n)])
+        y_AR = series_diff[self.p:]
+
+        phi = np.linalg.pinv(X_AR).dot(y_AR)
+
+        self.coef_AR = phi
+
+    def predict(self, series, n_steps):
+        predictions = []
+        last_values = series[-self.p:].copy()
+        for _ in range(n_steps):
+            pred = np.dot(self.coef_AR, last_values[-self.p:])
+            predictions.append(pred)
+
+            last_values = np.append(last_values, pred)
+
+        return predictions
 
 
 def main():
@@ -40,44 +74,16 @@ def main():
     print(f"PKB metodą wydatkową: {pkb_wydatkowa} mln zł")
     print(f"PKB metodą produkcyjną: {pkb_produkcja} mln zł")
 
-    data = {
-        'Date': pd.date_range(start='2000-01-01', periods=80, freq='Q'),
-        'GDP': np.random.normal(5000, 500, 80)
-    }
+    np.random.seed(0)
+    data = np.cumsum(np.random.normal(0, 1, 100)) + 50  # Losowe dane symulujące PKB
 
-    df = pd.DataFrame(data)
-    df.set_index('Date', inplace=True)
-    plt.figure(figsize=(10, 6))
-    plt.plot(df.index, df['GDP'], label='PKB', color='blue')
-    plt.title('Historyczny PKB')
-    plt.xlabel('Data')
-    plt.ylabel('PKB')
-    plt.legend()
-    plt.show()
+    arima_model = PredykcjaPKB(p=2, d=1, q=0)
+    arima_model.fit(data)
 
-    train = df.iloc[:-8]
-    test = df.iloc[-8:]
-    # stepwise_model = auto_arima(train['GDP'], start_p=1, start_q=1,
-    #                             max_p=3, max_q=3, m=4,
-    #                             start_P=0, seasonal=False,
-    #                             d=1, trace=True,
-    #                             error_action='ignore',
-    #                             suppress_warnings=True,
-    #                             stepwise=True)
-    # print(stepwise_model.summary())
-    # model = ARIMA(train['GDP'], order=stepwise_model.order)
-    # model_fit = model.fit()
-    # forecast = model_fit.forecast(steps=8)
-    # test['Forecast'] = forecast
-    plt.figure(figsize=(10, 6))
-    plt.plot(train.index, train['GDP'], label='Dane uczące')
-    plt.plot(test.index, test['GDP'], label='Dane rzeczywiste')
-    #plt.plot(test.index, test['Forecast'], label='Prognoza', color='red')
-    #plt.fill_between(test.index, test['Forecast'] - 1.96 * model_fit.bse,
-    #                 test['Forecast'] + 1.96 * model_fit.bse, color='red', alpha=0.2)
-    plt.title('Prognoza PKB za pomocą ARIMA')
-    plt.xlabel('Data')
-    plt.ylabel('PKB')
+    predictions = arima_model.predict(data, n_steps=10)
+
+    plt.plot(range(len(data)), data, label='Dane rzeczywiste')
+    plt.plot(range(len(data), len(data) + len(predictions)), predictions, label='Prognoza', color='red')
     plt.legend()
     plt.show()
 
