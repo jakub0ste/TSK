@@ -27,36 +27,54 @@ class KalkulatorPKB:
 class PredykcjaPKB:
 
     def __init__(self, p, d, q):
+        self.errors = None
         self.p = p
         self.d = d
         self.q = q
-        self.coef_AR = None
+        self.coef_AR = np.random.normal(0, 0.1, p)
+        self.coef_MA = np.random.normal(0, 0.1, q)
 
     def difference(self, series):
-        diff = np.diff(series, n=self.d)
+        diff = series
+        for _ in range(self.d):
+            diff = np.diff(diff, n=1)
         return diff
 
     def fit(self, series):
-        """Funkcja dopasowująca model ARIMA (tu uproszczona)."""
         series_diff = self.difference(series)
         n = len(series_diff)
 
-        # W przypadku AR (p)
+        # Autoregresja (AR)
         X_AR = np.array([series_diff[i - self.p:i] for i in range(self.p, n)])
         y_AR = series_diff[self.p:]
 
-        phi = np.linalg.pinv(X_AR).dot(y_AR)
+        # Dopasowanie współczynników AR za pomocą pseudoodwrotności
+        if len(X_AR) > 0:
+            self.coef_AR = np.linalg.pinv(X_AR).dot(y_AR)
 
-        self.coef_AR = phi
+        # Przygotowanie miejsca na błędy dla modelu MA
+        self.errors = np.zeros(self.q)
 
     def predict(self, series, n_steps):
         predictions = []
-        last_values = series[-self.p:].copy()
+        series_diff = self.difference(series)
+        last_values = series_diff[-self.p:].copy()  # Ostatnie wartości dla części AR
+
         for _ in range(n_steps):
-            pred = np.dot(self.coef_AR, last_values[-self.p:])
+            pred_AR = np.dot(self.coef_AR, last_values[-self.p:]) if self.p > 0 else 0
+
+            pred_MA = np.dot(self.coef_MA, self.errors) if self.q > 0 else 0
+
+            pred = pred_AR + pred_MA
             predictions.append(pred)
 
-            last_values = np.append(last_values, pred)
+            true_value = series[len(series) + len(predictions) - 1] if len(series) + len(predictions) - 1 < len(
+                series) else pred
+            error = true_value - pred
+
+            last_values = np.append(last_values, pred)[-self.p:]
+            self.errors = np.roll(self.errors, -1)
+            self.errors[-1] = error
 
         return predictions
 
@@ -77,13 +95,13 @@ def main():
     np.random.seed(0)
     data = np.cumsum(np.random.normal(0, 1, 100)) + 50  # Losowe dane symulujące PKB
 
-    arima_model = PredykcjaPKB(p=2, d=1, q=0)
+    arima_model = PredykcjaPKB(p=2, d=1, q=2)
     arima_model.fit(data)
 
     predictions = arima_model.predict(data, n_steps=10)
 
     plt.plot(range(len(data)), data, label='Dane rzeczywiste')
-    plt.plot(range(len(data), len(data) + len(predictions)), predictions, label='Prognoza', color='red')
+    plt.plot(range(len(data), len(data) + len(predictions)), predictions, label='Prognoza ARIMA', color='red')
     plt.legend()
     plt.show()
 
