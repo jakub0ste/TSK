@@ -2,9 +2,13 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy import stats
+from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error
 from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
-from sklearn.preprocessing import MinMaxScaler
+from statsmodels.tsa.stattools import adfuller, acf, pacf
+import tkinter as tk
+from tkinter import filedialog
+import openpyxl
 
 
 class KalkulatorPKB:
@@ -34,139 +38,77 @@ class PredykcjaPKB:
         self.coef_MA = np.zeros(q)
         self.errors = np.zeros(q)
 
-    def difference(self, series):
-        diff = series.copy()
-        for _ in range(self.d):
-            diff = np.diff(diff, n=1)
-        return diff
+    def AR(self, df, n_przewidywan = 5):
 
-    def fit(self, series):
-        series_diff = self.difference(series)
-        n = len(series_diff)
+        df_temp = df
 
-        # Autoregresja (AR)
-        X_AR = np.array([series_diff[i - self.p:i] for i in range(self.p, n)])
-        y_AR = series_diff[self.p:]
+        # Generating the lagged p terms
+        for i in range(1, self.p + 1):
+            df_temp['Shifted_values_%d' % i] = df_temp['Value'].shift(i)
 
-        if len(X_AR) > 0:
-            self.coef_AR = np.linalg.pinv(X_AR).dot(y_AR)
+        train_size = (int)(0.8 * df_temp.shape[0])
 
-    def predict(self, series, n_steps):
-        predictions = []
-        series_diff = self.difference(series)
-        last_values = series_diff[-self.p:].copy()
+        # Breaking data set into test and training
+        df_train = pd.DataFrame(df_temp[0:train_size])
+        df_test = pd.DataFrame(df_temp[train_size:df.shape[0]])
 
-        for _ in range(n_steps):
-            # Predykcja AR
-            pred_AR = np.dot(self.coef_AR, last_values[-self.p:]) if self.p > 0 else 0
+        df_train_2 = df_train.dropna()
+        # X contains the lagged values ,hence we skip the first column
+        X_train = df_train_2.iloc[:, 1:].values.reshape(-1, self.p)
+        # Y contains the value,it is the first column
+        y_train = df_train_2.iloc[:, 0].values.reshape(-1, 1)
 
-            # Predykcja MA
-            pred_MA = np.dot(self.coef_MA, self.errors) if self.q > 0 else 0
+        # Running linear regression to generate the coefficents of lagged terms
+        from sklearn.linear_model import LinearRegression
+        lr = LinearRegression()
+        lr.fit(X_train, y_train)
 
-            # Final prediction
-            pred = pred_AR + pred_MA
-            predictions.append(pred)
+        theta = lr.coef_.T
+        intercept = lr.intercept_
+        df_train_2['Predicted_Values'] = X_train.dot(lr.coef_.T) + lr.intercept_
+        # df_train_2[['Value','Predicted_Values']].plot()
 
-            # Update for next iteration
-            true_value_index = len(series) + len(predictions) - 1
-            true_value = series[true_value_index] if true_value_index < len(series) else pred
-            error = true_value - pred
+        X_test = df_test.iloc[:, 1:].values.reshape(-1, self.p)
+        df_test['Predicted_Values'] = X_test.dot(lr.coef_.T) + lr.intercept_
+        # df_test[['Value','Predicted_Values']].plot()
 
-            # Update last values and errors
-            last_values = np.append(last_values, pred)[-self.p:]
-            self.errors = np.roll(self.errors, -1)
-            self.errors[-1] = error
+        RMSE = np.sqrt(mean_squared_error(df_test['Value'], df_test['Predicted_Values']))
 
-        return predictions
+        print("The RMSE is :", RMSE, ", Value of p : ", self.p)
+        return [df_train_2, df_test, theta, intercept, RMSE]
 
-    def create_lags_p(self, series):
-        n = len(series)
-        lags = np.zeros((n - self.p, self.p + 1))
+    def MA(self, res):
 
-        for i in range(self.p + 1):
-            lags[:, i] = series[self.p - i: n - i]
+        for i in range(1, self.q + 1):
+            res['Shifted_values_%d' % i] = res['Residuals'].shift(i)
 
-        return lags
+        train_size = (int)(0.8 * res.shape[0])
 
-    def create_lags_q(self, residuals):
-        n = len(residuals)
-        lags = np.zeros((n - self.q, self.q + 1))
+        res_train = pd.DataFrame(res[0:train_size])
+        res_test = pd.DataFrame(res[train_size:res.shape[0]])
 
-        for i in range(self.q + 1):
-            lags[:, i] = residuals[self.q - i: n - i]
+        res_train_2 = res_train.dropna()
+        X_train = res_train_2.iloc[:, 1:].values.reshape(-1, self.q)
+        y_train = res_train_2.iloc[:, 0].values.reshape(-1, 1)
 
-        return lags
+        from sklearn.linear_model import LinearRegression
+        lr = LinearRegression()
+        lr.fit(X_train, y_train)
 
-    def AR(self, series):
-        # lags = self.create_lags_p(series)
-        # train_size = int(0.8 * lags.shape[0])
-        # train_data = lags[:train_size, :]
-        # test_data = lags[train_size:, :]
-        #
-        # # Ustalanie X (przesunięte wartości) i y (wartości docelowe)
-        # X_train = train_data[:, 1:]
-        # y_train = train_data[:, 0].reshape(-1, 1)
-        # X_test = test_data[:, 1:]
-        # y_test = test_data[:, 0].reshape(-1, 1)
-        #
-        # theta = linear_regression(y_train, X_train)
-        #
-        # # Obliczanie wartości przewidywanych dla zbioru treningowego
-        # y_train_pred = X_train @ theta
-        # # Obliczanie wartości przewidywanych dla zbioru testowego
-        # y_test_pred = X_test @ theta
-        #
-        # residuals_train = y_train.flatten() - y_train_pred.flatten()
-        # residuals_test = y_test.flatten() - y_test_pred.flatten()
-        #
-        # # Łącz reszty do dalszego użycia
-        # residuals = np.concatenate((residuals_train, residuals_test))
-        #
-        # # Obliczanie błędu średniokwadratowego (RMSE)
-        # rmse = np.sqrt(mean_squared_error(y_test, y_test_pred))
-        #
-        # return {
-        #     "train_predictions": y_train_pred.flatten(),
-        #     "test_predictions": y_test_pred.flatten(),
-        #     "coefficients": theta,
-        #     "residuals": residuals,
-        #     "rmse": rmse
-        # }
-        self.fit(series)
-        return self.predict(series, n_steps=len(series) - self.p)
+        theta = lr.coef_.T
+        intercept = lr.intercept_
+        res_train_2['Predicted_Values'] = X_train.dot(lr.coef_.T) + lr.intercept_
+        # res_train_2[['Residuals','Predicted_Values']].plot()
 
-    def MA(self, residuals):
-        # lags = self.create_lags_q(res)
-        # train_size = int(0.8 * lags.shape[0])
-        # train_data = lags[:train_size, :]
-        # test_data = lags[train_size:, :]
-        # # Ustalanie X (przesunięte wartości) i y (wartości docelowe)
-        # X_train = train_data[:, 1:]
-        # y_train = train_data[:, 0].reshape(-1, 1)
-        # X_test = test_data[:, 1:]
-        # y_test = test_data[:, 0].reshape(-1, 1)
-        # theta = linear_regression(y_train, X_train)
-        # # Obliczanie wartości przewidywanych dla zbioru treningowego
-        # y_train_pred = X_train @ theta
-        # # Obliczanie wartości przewidywanych dla zbioru testowego
-        # y_test_pred = X_test @ theta
-        #
-        # rmse = np.sqrt(mean_squared_error(y_test, y_test_pred))
-        #
-        # return {
-        #     "train_predictions": y_train_pred,
-        #     "test_predictions": y_test_pred,
-        #     "coefficients": theta,
-        #     "rmse": rmse
-        # }
-        n = len(residuals)
-        if n < self.q:
-            raise ValueError("Not enough residuals for MA model.")
+        X_test = res_test.iloc[:, 1:].values.reshape(-1, self.q)
+        res_test['Predicted_Values'] = X_test.dot(lr.coef_.T) + lr.intercept_
+        res_test[['Residuals', 'Predicted_Values']].plot()
 
-        self.errors = residuals[-self.q:]  # Initialize the errors
+        from sklearn.metrics import mean_squared_error
+        RMSE = np.sqrt(mean_squared_error(res_test['Residuals'], res_test['Predicted_Values']))
 
-        # We need to predict the next values based on errors
-        return self.predict(residuals, n_steps=len(residuals) - self.q)
+        print("The RMSE is :", RMSE, ", Value of q : ", self.q)
+        return [res_train_2, res_test, theta, intercept, RMSE]
 
 
 def linear_regression(y, X):
@@ -177,97 +119,100 @@ def linear_regression(y, X):
 
 
 def adf_test(series, max_lag=1):
-    n = len(series)
-    # 1. Różnicowanie szeregu czasowego
-    y_diff = np.diff(series)
-    y_diff = y_diff[max_lag:]
+    # n = len(series)
+    # # 1. Różnicowanie szeregu czasowego
+    # y_diff = np.diff(series)
+    # y_diff = y_diff[max_lag:]
+    #
+    # # 2. Tworzenie regresorów z opóźnionych wartości
+    # lagged_series = series[:-1]
+    # lagged_series = lagged_series[max_lag:]
+    #
+    # X = np.column_stack([lagged_series] + [np.roll(y_diff, i) for i in range(1, max_lag + 1)])
+    # X = np.column_stack((np.ones(len(X)), X))  # Dodajemy stałą
+    #
+    # # 3. Regresja OLS dla obliczenia statystyki ADF
+    # beta = linear_regression(y_diff, X)
+    #
+    # # 4. Statystyka testowa ADF: beta[1] / błędy standardowe
+    # y_pred = X @ beta
+    # residuals = y_diff - y_pred
+    #
+    # sse = np.sum(residuals ** 2)
+    # sigma = np.sqrt(sse / (len(y_diff) - len(beta)))
+    # se_beta1 = sigma / np.sqrt(np.sum((lagged_series - np.mean(lagged_series)) ** 2))
+    #
+    # adf_statistic = beta[1] / se_beta1
+    #
+    # # 5. P-wartość i wartości krytyczne (szacowane manualnie)
+    # p_value = 2 * (1 - stats.norm.cdf(abs(adf_statistic)))
+    # critical_values = {
+    #     "1%": -3.430,
+    #     "5%": -2.860,
+    #     "10%": -2.570
+    # }
+    #
+    # return adf_statistic, p_value, max_lag, critical_values
+    adf_result = adfuller(series)
+    adf_statistic = adf_result[0]
+    p_value = adf_result[1]
+    critical_values = adf_result[4]
 
-    # 2. Tworzenie regresorów z opóźnionych wartości
-    lagged_series = series[:-1]
-    lagged_series = lagged_series[max_lag:]
-
-    X = np.column_stack([lagged_series] + [np.roll(y_diff, i) for i in range(1, max_lag + 1)])
-    X = np.column_stack((np.ones(len(X)), X))  # Dodajemy stałą
-
-    # 3. Regresja OLS dla obliczenia statystyki ADF
-    beta = linear_regression(y_diff, X)
-
-    # 4. Statystyka testowa ADF: beta[1] / błędy standardowe
-    y_pred = X @ beta
-    residuals = y_diff - y_pred
-
-    sse = np.sum(residuals ** 2)
-    sigma = np.sqrt(sse / (len(y_diff) - len(beta)))
-    se_beta1 = sigma / np.sqrt(np.sum((lagged_series - np.mean(lagged_series)) ** 2))
-
-    adf_statistic = beta[1] / se_beta1
-
-    # 5. P-wartość i wartości krytyczne (szacowane manualnie)
-    p_value = 2 * (1 - stats.norm.cdf(abs(adf_statistic)))
-    critical_values = {
-        "1%": -3.430,
-        "5%": -2.860,
-        "10%": -2.570
-    }
-
-    return adf_statistic, p_value, max_lag, critical_values
+    return adf_statistic, p_value, critical_values
 
 
 def find_d(series):
     d = 0
-    while True:
-        p_value = adf_test(series)[1]
-        if p_value < 0.05:  # Test stacjonarności jest istotny
-            break
+    p_value = adf_test(series)[1]
+
+    while p_value >= 0.05:
         series = np.diff(series)
         d += 1
+        p_value = adf_test(series)[1]
+
     return d
 
 
 def find_p_q(series, d):
-    # Najpierw różnicujemy dane d razy
+    diff_series = series.copy()
     for _ in range(d):
-        series = np.diff(series)
+        diff_series = np.diff(diff_series)
 
-    # Rysujemy ACF i PACF
+    n = len(diff_series)
+    max_lags = min(20, n // 2)
+
+    # Rysowanie wykresów ACF i PACF
     plt.figure(figsize=(12, 6))
+
+    # ACF
     plt.subplot(1, 2, 1)
-    plot_acf(series, lags=20, ax=plt.gca())
+    plot_acf(diff_series, lags=max_lags, ax=plt.gca())
     plt.title('ACF')
 
+    # PACF
     plt.subplot(1, 2, 2)
-    plot_pacf(series, lags=20, ax=plt.gca())
+    plot_pacf(diff_series, lags=max_lags, ax=plt.gca())
     plt.title('PACF')
 
     plt.tight_layout()
     plt.show()
 
-    # Wartości p i q można określić na podstawie wizualizacji ACF i PACF
+    # Wartości p i q można określić na podstawie wykresów ACF i PACF
     p = int(input("Wprowadź wartość p na podstawie wykresu PACF: "))
     q = int(input("Wprowadź wartość q na podstawie wykresu ACF: "))
 
     return p, q
 
 
-def shift(array, num_shift):
-    """Przesuwa wartości w tablicy o `num_shift` miejsc."""
-    result = np.empty_like(array)
-    if num_shift > 0:
-        result[:num_shift] = np.nan
-        result[num_shift:] = array[:-num_shift]
-    elif num_shift < 0:
-        result[num_shift:] = np.nan
-        result[:num_shift] = array[-num_shift:]
-    else:
-        result[:] = array
-    return result
-
-
-def diff(array, lag):
-    return array - shift(array, lag)
+def choose_file():
+    root = tk.Tk()
+    root.withdraw()
+    file_path = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv"), ("Excel files", "*.xlsx")])
+    return file_path
 
 
 def main():
+    pd.options.mode.copy_on_write = True
     kalkulator = KalkulatorPKB()
     # wartości głównie przypadkowe
     pkb_dochodowa = kalkulator.pkb_metoda_dochodowa(100801, 457823, 574000, 50000)
@@ -280,29 +225,53 @@ def main():
     print(f"PKB metodą wydatkową: {pkb_wydatkowa} mln zł")
     print(f"PKB metodą produkcyjną: {pkb_produkcja} mln zł")
 
-    np.random.seed(0)
-    data = np.cumsum(np.random.normal(0, 1, 100)) + 50  # Losowe dane symulujące PKB
+    # np.random.seed(0)
+    # data = np.cumsum(np.random.normal(0, 1, 100)) + 50  # Losowe dane symulujące PKB
 
-    d = find_d(data)
-    p, q = find_p_q(data, d)
-    arima_model = PredykcjaPKB(p=p, d=d, q=q)
-    AR_predictions = arima_model.AR(data)
+    file_path = choose_file()
+    if file_path:
+        df = pd.read_excel(file_path, header=None)
 
-    # Calculate residuals for MA model
-    residuals = data[arima_model.p:] - AR_predictions
+        df.columns = df.iloc[0]
+        df = df.drop(0).reset_index(drop=True)
 
-    MA_predictions = arima_model.MA(residuals)
+        df = df.T
+        df.columns = ['Value']
+        df.index.name = 'Year'
 
-    # Combine AR and MA predictions
-    predictions = AR_predictions + MA_predictions
+        df['Value'] = pd.to_numeric(df['Value'], errors='coerce') * 1_000_000
 
-    predictions = np.exp(predictions)
-    predictions *= max(data)
+        df_testing = pd.DataFrame(np.log(df.Value).diff().diff(1))
 
-    plt.plot(range(len(data)), data, label='Dane rzeczywiste')
-    plt.plot(range(len(data), len(data) + len(predictions)), predictions, label='Prognoza ARIMA', color='red')
-    plt.legend()
-    plt.show()
+        d = find_d(df_testing.Value.dropna())
+        p, q = find_p_q(df_testing.Value.dropna(), d)
+        arima_model = PredykcjaPKB(p, d, q)
+        [df_train, df_test, theta, intercept, RMSE] = arima_model.AR(pd.DataFrame(df_testing.Value))
+        df_c = pd.concat([df_train, df_test])
+
+        res = pd.DataFrame()
+        res['Residuals'] = df_c['Value'] - df_c['Predicted_Values']
+        [res_train, res_test, theta, intercept, RMSE] = arima_model.MA(pd.DataFrame(res.Residuals))
+        res_c = pd.concat([res_train, res_test])
+        df_c.Predicted_Values += res_c.Predicted_Values
+        df_c.Value += np.log(df).shift(1).Value
+        df_c.Value += np.log(df).diff().shift(1).Value
+        df_c.Predicted_Values += np.log(df).shift(1).Value
+        df_c.Predicted_Values += np.log(df).diff().shift(1).Value
+        df_c.Value = np.exp(df_c.Value)
+        df_c.Predicted_Values = np.exp(df_c.Predicted_Values)
+        # Wyświetlenie wyników
+        plt.figure(figsize=(12, 6))
+        plt.plot(df_c.index, df_c['Value'], label='Oryginalne wartości')
+        plt.plot(df_c.index, df_c['Predicted_Values'], label='Prognozy ARIMA', linestyle='--')
+        plt.legend()
+        # plt.title("Porównanie oryginalnych wartości i prognoz ARIMA")
+        plt.xlabel("Rok")
+        plt.ylabel("Wartość")
+        plt.show()
+
+    else:
+        print("Nie wybrano pliku.")
 
 
 if __name__ == '__main__':
