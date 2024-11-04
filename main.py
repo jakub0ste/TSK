@@ -46,7 +46,7 @@ class PredykcjaPKB:
         for i in range(1, self.p + 1):
             df_temp['Shifted_values_%d' % i] = df_temp['Value'].shift(i)
 
-        train_size = (int)(0.8 * df_temp.shape[0])
+        train_size = int(0.8 * df_temp.shape[0])
 
         # Breaking data set into test and training
         df_train = pd.DataFrame(df_temp[0:train_size])
@@ -58,31 +58,23 @@ class PredykcjaPKB:
         # Y contains the value,it is the first column
         y_train = df_train_2.iloc[:, 0].values.reshape(-1, 1)
 
-        # Running linear regression to generate the coefficents of lagged terms
-        from sklearn.linear_model import LinearRegression
         lr = LinearRegression()
         lr.fit(X_train, y_train)
 
         theta = lr.coef_.T
         intercept = lr.intercept_
-        df_train_2['Predicted_Values'] = X_train.dot(lr.coef_.T) + lr.intercept_
-        # df_train_2[['Value','Predicted_Values']].plot()
+        df_train_2['Predicted_Values'] = X_train.dot(theta) + intercept
 
         X_test = df_test.iloc[:, 1:].values.reshape(-1, self.p)
-        df_test['Predicted_Values'] = X_test.dot(lr.coef_.T) + lr.intercept_
-        # df_test[['Value','Predicted_Values']].plot()
-
-        RMSE = np.sqrt(mean_squared_error(df_test['Value'], df_test['Predicted_Values']))
-
-        print("The RMSE is :", RMSE, ", Value of p : ", self.p)
-        return [df_train_2, df_test, theta, intercept, RMSE]
+        df_test['Predicted_Values'] = X_test.dot(theta) + intercept
+        return [df_train_2, df_test]
 
     def MA(self, res):
 
         for i in range(1, self.q + 1):
             res['Shifted_values_%d' % i] = res['Residuals'].shift(i)
 
-        train_size = (int)(0.8 * res.shape[0])
+        train_size = int(0.8 * res.shape[0])
 
         res_train = pd.DataFrame(res[0:train_size])
         res_test = pd.DataFrame(res[train_size:res.shape[0]])
@@ -90,25 +82,16 @@ class PredykcjaPKB:
         res_train_2 = res_train.dropna()
         X_train = res_train_2.iloc[:, 1:].values.reshape(-1, self.q)
         y_train = res_train_2.iloc[:, 0].values.reshape(-1, 1)
-
-        from sklearn.linear_model import LinearRegression
         lr = LinearRegression()
         lr.fit(X_train, y_train)
 
         theta = lr.coef_.T
         intercept = lr.intercept_
-        res_train_2['Predicted_Values'] = X_train.dot(lr.coef_.T) + lr.intercept_
-        # res_train_2[['Residuals','Predicted_Values']].plot()
+        res_train_2['Predicted_Values'] = X_train.dot(theta) + intercept
 
         X_test = res_test.iloc[:, 1:].values.reshape(-1, self.q)
-        res_test['Predicted_Values'] = X_test.dot(lr.coef_.T) + lr.intercept_
-        res_test[['Residuals', 'Predicted_Values']].plot()
-
-        from sklearn.metrics import mean_squared_error
-        RMSE = np.sqrt(mean_squared_error(res_test['Residuals'], res_test['Predicted_Values']))
-
-        print("The RMSE is :", RMSE, ", Value of q : ", self.q)
-        return [res_train_2, res_test, theta, intercept, RMSE]
+        res_test['Predicted_Values'] = X_test.dot(theta) + intercept
+        return [res_train_2, res_test]
 
 
 def linear_regression(y, X):
@@ -246,12 +229,12 @@ def main():
         d = find_d(df_testing.Value.dropna())
         p, q = find_p_q(df_testing.Value.dropna(), d)
         arima_model = PredykcjaPKB(p, d, q)
-        [df_train, df_test, theta, intercept, RMSE] = arima_model.AR(pd.DataFrame(df_testing.Value))
+        [df_train, df_test] = arima_model.AR(pd.DataFrame(df_testing.Value))
         df_c = pd.concat([df_train, df_test])
 
         res = pd.DataFrame()
         res['Residuals'] = df_c['Value'] - df_c['Predicted_Values']
-        [res_train, res_test, theta, intercept, RMSE] = arima_model.MA(pd.DataFrame(res.Residuals))
+        [res_train, res_test] = arima_model.MA(pd.DataFrame(res.Residuals))
         res_c = pd.concat([res_train, res_test])
         df_c.Predicted_Values += res_c.Predicted_Values
         df_c.Value += np.log(df).shift(1).Value
@@ -261,13 +244,13 @@ def main():
         df_c.Value = np.exp(df_c.Value)
         df_c.Predicted_Values = np.exp(df_c.Predicted_Values)
         # Wyświetlenie wyników
-        plt.figure(figsize=(12, 6))
+        plt.figure(figsize=(20, 6))
         plt.plot(df_c.index, df_c['Value'], label='Oryginalne wartości')
         plt.plot(df_c.index, df_c['Predicted_Values'], label='Prognozy ARIMA', linestyle='--')
         plt.legend()
         # plt.title("Porównanie oryginalnych wartości i prognoz ARIMA")
         plt.xlabel("Rok")
-        plt.ylabel("Wartość")
+        plt.ylabel("PKB(w mln zł)")
         plt.show()
 
     else:
