@@ -256,8 +256,6 @@ def main():
         if 'Predicted_Values' in res_c.columns:
             df_c['Predicted_Values'] = df_c['Predicted_Values'].add(res_c['Predicted_Values'], fill_value=0)
 
-        print(df_c['Predicted_Values'])
-
         # df_c['Value'] = df_c['Value'].replace(0, np.nan)
         # df_c['Predicted_Values'] = df_c['Predicted_Values'].replace(0, np.nan)
         # df_c['Value'] = np.log(df_c['Value']).shift(1)
@@ -272,6 +270,17 @@ def main():
         df_c.Value += np.log(df).diff().shift(1).Value
         df_c.Predicted_Values += np.log(df).shift(1).Value
         df_c.Predicted_Values += np.log(df).diff().shift(1).Value
+        last_valid_value = df_c['Predicted_Values'].iloc[-n_lat - 1]
+        df['Growth_Rate'] = df['Value'].pct_change()
+        growth_rate = df['Growth_Rate'].mean()
+        counter = df['Growth_Rate'].count()
+        print(growth_rate)
+        for year in range(df.index.max() + 1, df_c.index.max()):
+            df_c.loc[year, 'Predicted_Values'] = last_valid_value * (1 + growth_rate)
+            last_valid_value = df_c.loc[year, 'Predicted_Values']
+            #growth_rate = (growth_rate * counter + (df_c.loc[year, 'Predicted_Values'] / df_c.loc[year - 1, 'Predicted_Values'])) / (counter + 1)
+            print(growth_rate)
+        print(df_c['Predicted_Values'])
         df_c.Value = np.exp(df_c.Value)
         df_c.Predicted_Values = np.exp(df_c.Predicted_Values)
 
