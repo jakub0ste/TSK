@@ -38,120 +38,76 @@ class PredykcjaPKB:
         self.coef_MA = np.zeros(q)
         self.errors = np.zeros(q)
 
-    def AR(self, df, n_przewidywan = 5):
-
-        df_temp = df
-
-        # Generating the lagged p terms
+    def AR(self, data):
+        df = pd.DataFrame(data, columns=['Value'])
         for i in range(1, self.p + 1):
-            df_temp['Shifted_values_%d' % i] = df_temp['Value'].shift(i)
+            df[f'Lags_{i}'] = df['Value'].shift(i)
 
-        df_temp = df_temp.ffill()
+        # Drop rows with NaN values created by lagging
+        df.dropna(inplace=True)
 
-        train_size = int(0.8 * df_temp.shape[0])
+        X = df.iloc[:, 1:].values  # Select lagged values as features
+        y = df['Value'].values  # Original values as target
 
-        # Breaking data set into test and training
-        df_train = pd.DataFrame(df_temp[0:train_size])
-        df_test = pd.DataFrame(df_temp[train_size:df.shape[0]])
+        model = LinearRegression()
+        model.fit(X, y)
+        return model
 
-        df_train_2 = df_train.dropna()
-        # X contains the lagged values ,hence we skip the first column
-        X_train = df_train_2.iloc[:, 1:].values.reshape(-1, self.p)
-        # Y contains the value,it is the first column
-        y_train = df_train_2.iloc[:, 0].values.reshape(-1, 1)
-
-        lr = LinearRegression()
-        lr.fit(X_train, y_train)
-
-        theta = lr.coef_.T
-        intercept = lr.intercept_
-        df_train_2['Predicted_Values'] = X_train.dot(theta) + intercept
-
-        X_test = df_test.iloc[:, 1:].values.reshape(-1, self.p)
-        df_test['Predicted_Values'] = X_test.dot(theta) + intercept
-
-        last_values = df['Value'].iloc[-self.p:].values
-        future_predictions = []
-        for _ in range(n_przewidywan):
-            future_pred = lr.predict(last_values.reshape(1, -1))[0, 0]
-            #future_pred = max(future_pred, 0)
-            future_predictions.append(future_pred)
-
-            # Update last_values for next prediction
-            last_values = np.roll(last_values, -1)
-            last_values[-1] = future_pred
-
-        offset = df_test.index.max() - df.shape[0] + 1
-        df_future = pd.DataFrame({'Predicted_Values': future_predictions}, index=range(df.shape[0]+offset, df.shape[0] + n_przewidywan+offset))
-        return [df_train_2, df_test, df_future]
-
-    def MA(self, res):
-
+    def MA(self, residuals):
+        res_df = pd.DataFrame(residuals, columns=['Residuals'])
         for i in range(1, self.q + 1):
-            res['Shifted_values_%d' % i] = res['Residuals'].shift(i)
+            res_df[f'Lags_{i}'] = res_df['Residuals'].shift(i)
 
-        train_size = int(0.8 * res.shape[0])
+        # Drop NaN values created by lagging
+        res_df.dropna(inplace=True)
 
-        res_train = pd.DataFrame(res[0:train_size])
-        res_test = pd.DataFrame(res[train_size:res.shape[0]])
+        X = res_df.iloc[:, 1:].values
+        y = res_df['Residuals'].values
 
-        res_train_2 = res_train.dropna()
-        X_train = res_train_2.iloc[:, 1:].values.reshape(-1, self.q)
-        y_train = res_train_2.iloc[:, 0].values.reshape(-1, 1)
-        lr = LinearRegression()
-        lr.fit(X_train, y_train)
+        model = LinearRegression()
+        model.fit(X, y)
+        return model
 
-        theta = lr.coef_.T
-        intercept = lr.intercept_
-        res_train_2['Predicted_Values'] = X_train.dot(theta) + intercept
+    def calculate(self, data, forecast_steps=5):
+        diff_data = difference(data['Value'].values, self.d)
+        if len(diff_data) <= self.p:
+            raise ValueError(f"Insufficient data for {self.p} AR lags after differencing.")
 
-        X_test = res_test.iloc[:, 1:].values.reshape(-1, self.q)
-        res_test['Predicted_Values'] = X_test.dot(theta) + intercept
-        return [res_train_2, res_test]
+        # AR model fitting
+        ar_model = self.AR(diff_data['Value'].values)
 
+        last_lags = diff_data[-self.p:].values.reshape(1, -1)
 
-def linear_regression(y, X):
-    # X.T * X - macierz kowariancji
-    XtX_inv = np.linalg.inv(X.T @ X)
-    # (X.T * X)^(-1) * X.T * y - estymacja współczynników
-    return XtX_inv @ X.T @ y
+        ar_pred = ar_model.predict(last_lags)
+
+        # Calculate residuals
+        residuals = diff_data['Value'].values - ar_pred
+
+        # MA model fitting
+        if self.q > 0:
+            ma_model = self.MA(residuals)
+            last_q_lags = residuals[-self.q:] if self.q > 1 else [residuals[-1]]
+            last_q_lags = np.array(last_q_lags).reshape(1, -1)
+            ma_pred = ma_model.predict(last_q_lags)
+        else:
+            ma_pred = 0
+
+        # Sum AR and MA predictions
+        predictions = ar_pred + ma_pred
+
+        reverted_predictions = np.zeros_like(predictions)
+        reverted_predictions[0] = predictions[0] + data['Value'].iloc[-(self.d + 1)]
+
+        for i in range(1, len(predictions)):
+            reverted_predictions[i] = predictions[i] + reverted_predictions[i - 1]
+
+        # Future predictions (can be further adapted for iterative forecasting)
+        forecast = [reverted_predictions[-1] + (i + 1) * np.mean(predictions) for i in range(forecast_steps)]
+
+        return reverted_predictions, forecast
 
 
 def adf_test(series, max_lag=1):
-    # n = len(series)
-    # # 1. Różnicowanie szeregu czasowego
-    # y_diff = np.diff(series)
-    # y_diff = y_diff[max_lag:]
-    #
-    # # 2. Tworzenie regresorów z opóźnionych wartości
-    # lagged_series = series[:-1]
-    # lagged_series = lagged_series[max_lag:]
-    #
-    # X = np.column_stack([lagged_series] + [np.roll(y_diff, i) for i in range(1, max_lag + 1)])
-    # X = np.column_stack((np.ones(len(X)), X))  # Dodajemy stałą
-    #
-    # # 3. Regresja OLS dla obliczenia statystyki ADF
-    # beta = linear_regression(y_diff, X)
-    #
-    # # 4. Statystyka testowa ADF: beta[1] / błędy standardowe
-    # y_pred = X @ beta
-    # residuals = y_diff - y_pred
-    #
-    # sse = np.sum(residuals ** 2)
-    # sigma = np.sqrt(sse / (len(y_diff) - len(beta)))
-    # se_beta1 = sigma / np.sqrt(np.sum((lagged_series - np.mean(lagged_series)) ** 2))
-    #
-    # adf_statistic = beta[1] / se_beta1
-    #
-    # # 5. P-wartość i wartości krytyczne (szacowane manualnie)
-    # p_value = 2 * (1 - stats.norm.cdf(abs(adf_statistic)))
-    # critical_values = {
-    #     "1%": -3.430,
-    #     "5%": -2.860,
-    #     "10%": -2.570
-    # }
-    #
-    # return adf_statistic, p_value, max_lag, critical_values
     adf_result = adfuller(series)
     adf_statistic = adf_result[0]
     p_value = adf_result[1]
@@ -210,6 +166,13 @@ def choose_file():
     return file_path
 
 
+def difference(data, d):
+    diff_data = data.copy()
+    for _ in range(d):
+        diff_data = np.diff(diff_data)
+    return pd.DataFrame(diff_data, columns=['Value'])
+
+
 def main():
     pd.options.mode.copy_on_write = True
     kalkulator = KalkulatorPKB()
@@ -224,9 +187,6 @@ def main():
     print(f"PKB metodą wydatkową: {pkb_wydatkowa} mln zł")
     print(f"PKB metodą produkcyjną: {pkb_produkcja} mln zł")
 
-    # np.random.seed(0)
-    # data = np.cumsum(np.random.normal(0, 1, 100)) + 50  # Losowe dane symulujące PKB
-
     file_path = choose_file()
     if file_path:
         df = pd.read_excel(file_path, header=None)
@@ -240,56 +200,27 @@ def main():
 
         df['Value'] = pd.to_numeric(df['Value'], errors='coerce') * 1_000_000
 
-        df_testing = pd.DataFrame(np.log(df.Value).diff().diff(1))
-
-        d = find_d(df_testing.Value.dropna())
-        p, q = find_p_q(df_testing.Value.dropna(), d)
+        df_Values = df['Value']
+        d = find_d(df_Values.dropna())
+        p, q = find_p_q(df_Values.dropna(), d)
         arima_model = PredykcjaPKB(p, d, q)
-        n_lat = int(input("Podaj ile lat przewidzieć: "))
-        [df_train, df_test, df_future] = arima_model.AR(pd.DataFrame(df_testing.Value), n_lat)
-        df_c = pd.concat([df_train, df_test, df_future])
-
-        res = pd.DataFrame()
-        res['Residuals'] = df_c['Value'] - df_c['Predicted_Values']
-        [res_train, res_test] = arima_model.MA(pd.DataFrame(res.Residuals))
-        res_c = pd.concat([res_train, res_test])
-        if 'Predicted_Values' in res_c.columns:
-            df_c['Predicted_Values'] = df_c['Predicted_Values'].add(res_c['Predicted_Values'], fill_value=0)
-
-        # df_c['Value'] = df_c['Value'].replace(0, np.nan)
-        # df_c['Predicted_Values'] = df_c['Predicted_Values'].replace(0, np.nan)
-        # df_c['Value'] = np.log(df_c['Value']).shift(1)
-        # df_c['Predicted_Values'] = np.log(df_c['Predicted_Values']).shift(1)
-        # df_c['Value'] = df_c['Value'].bfill()
-        # df_c['Predicted_Values'] = df_c['Predicted_Values'].bfill()
-        # df_c['Value'] = np.exp(df_c['Value'])
-        # df_c['Predicted_Values'] = np.exp(df_c['Predicted_Values'])
-
-        #df_c.Predicted_Values += res_c.Predicted_Values
-        df_c.Value += np.log(df).shift(1).Value
-        df_c.Value += np.log(df).diff().shift(1).Value
-        df_c.Predicted_Values += np.log(df).shift(1).Value
-        df_c.Predicted_Values += np.log(df).diff().shift(1).Value
-        last_valid_value = df_c['Predicted_Values'].iloc[-n_lat - 1]
-        df['Growth_Rate'] = df['Value'].pct_change()
-        growth_rate = df['Growth_Rate'].mean()
-        counter = df['Growth_Rate'].count()
-        print(growth_rate)
-        for year in range(df.index.max() + 1, df_c.index.max()):
-            df_c.loc[year, 'Predicted_Values'] = last_valid_value * (1 + growth_rate)
-            last_valid_value = df_c.loc[year, 'Predicted_Values']
-            #growth_rate = (growth_rate * counter + (df_c.loc[year, 'Predicted_Values'] / df_c.loc[year - 1, 'Predicted_Values'])) / (counter + 1)
-            print(growth_rate)
-        print(df_c['Predicted_Values'])
-        df_c.Value = np.exp(df_c.Value)
-        df_c.Predicted_Values = np.exp(df_c.Predicted_Values)
+        predictions, forecast = arima_model.calculate(df)
+        print(df)
+        print(predictions)
+        print(forecast)
 
         # Wyświetlenie wyników
         plt.figure(figsize=(20, 6))
-        plt.plot(df_c.index, df_c['Value'], label='Oryginalne wartości')
-        plt.plot(df_c.index, df_c['Predicted_Values'], label='Prognozy ARIMA', linestyle='--')
-        print(df_c.Predicted_Values)
-        #plt.xlim(df.index.min(), df_c.index.max() + n_lat)
+        forecast_years = np.arange(df.index[-1] + 1, df.index[-1] + 1 + len(forecast))
+        combined_years = np.concatenate([df.index, forecast_years])
+        combined_values = np.concatenate([df['Value'].values, forecast])
+
+        # Plot everything together for a continuous line
+        plt.plot(combined_years, combined_values, label='Połączone prognozy', color='red')
+        plt.plot(df.index, df['Value'], label='Oryginalne wartości')
+        plt.plot(df.index[-len(predictions):], predictions, label='Prognozy ARIMA', linestyle='--')
+        plt.plot(forecast_years, forecast, label='Prognozy ARIMA', linestyle=':')
+        # plt.xlim(df.index.min(), df_c.index.max() + n_lat)
         plt.grid()
         plt.legend()
         plt.title("Porównanie oryginalnych wartości i prognoz ARIMA")
