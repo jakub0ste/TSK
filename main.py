@@ -46,6 +46,8 @@ class PredykcjaPKB:
         for i in range(1, self.p + 1):
             df_temp['Shifted_values_%d' % i] = df_temp['Value'].shift(i)
 
+        df_temp = df_temp.ffill()
+
         train_size = int(0.8 * df_temp.shape[0])
 
         # Breaking data set into test and training
@@ -67,7 +69,21 @@ class PredykcjaPKB:
 
         X_test = df_test.iloc[:, 1:].values.reshape(-1, self.p)
         df_test['Predicted_Values'] = X_test.dot(theta) + intercept
-        return [df_train_2, df_test]
+
+        last_values = df['Value'].iloc[-self.p:].values
+        future_predictions = []
+        for _ in range(n_przewidywan):
+            future_pred = lr.predict(last_values.reshape(1, -1))[0, 0]
+            #future_pred = max(future_pred, 0)
+            future_predictions.append(future_pred)
+
+            # Update last_values for next prediction
+            last_values = np.roll(last_values, -1)
+            last_values[-1] = future_pred
+
+        offset = df_test.index.max() - df.shape[0] + 1
+        df_future = pd.DataFrame({'Predicted_Values': future_predictions}, index=range(df.shape[0]+offset, df.shape[0] + n_przewidywan+offset))
+        return [df_train_2, df_test, df_future]
 
     def MA(self, res):
 
@@ -229,26 +245,45 @@ def main():
         d = find_d(df_testing.Value.dropna())
         p, q = find_p_q(df_testing.Value.dropna(), d)
         arima_model = PredykcjaPKB(p, d, q)
-        [df_train, df_test] = arima_model.AR(pd.DataFrame(df_testing.Value))
-        df_c = pd.concat([df_train, df_test])
+        n_lat = int(input("Podaj ile lat przewidzieć: "))
+        [df_train, df_test, df_future] = arima_model.AR(pd.DataFrame(df_testing.Value), n_lat)
+        df_c = pd.concat([df_train, df_test, df_future])
 
         res = pd.DataFrame()
         res['Residuals'] = df_c['Value'] - df_c['Predicted_Values']
         [res_train, res_test] = arima_model.MA(pd.DataFrame(res.Residuals))
         res_c = pd.concat([res_train, res_test])
-        df_c.Predicted_Values += res_c.Predicted_Values
+        if 'Predicted_Values' in res_c.columns:
+            df_c['Predicted_Values'] = df_c['Predicted_Values'].add(res_c['Predicted_Values'], fill_value=0)
+
+        print(df_c['Predicted_Values'])
+
+        # df_c['Value'] = df_c['Value'].replace(0, np.nan)
+        # df_c['Predicted_Values'] = df_c['Predicted_Values'].replace(0, np.nan)
+        # df_c['Value'] = np.log(df_c['Value']).shift(1)
+        # df_c['Predicted_Values'] = np.log(df_c['Predicted_Values']).shift(1)
+        # df_c['Value'] = df_c['Value'].bfill()
+        # df_c['Predicted_Values'] = df_c['Predicted_Values'].bfill()
+        # df_c['Value'] = np.exp(df_c['Value'])
+        # df_c['Predicted_Values'] = np.exp(df_c['Predicted_Values'])
+
+        #df_c.Predicted_Values += res_c.Predicted_Values
         df_c.Value += np.log(df).shift(1).Value
         df_c.Value += np.log(df).diff().shift(1).Value
         df_c.Predicted_Values += np.log(df).shift(1).Value
         df_c.Predicted_Values += np.log(df).diff().shift(1).Value
         df_c.Value = np.exp(df_c.Value)
         df_c.Predicted_Values = np.exp(df_c.Predicted_Values)
+
         # Wyświetlenie wyników
         plt.figure(figsize=(20, 6))
         plt.plot(df_c.index, df_c['Value'], label='Oryginalne wartości')
         plt.plot(df_c.index, df_c['Predicted_Values'], label='Prognozy ARIMA', linestyle='--')
+        print(df_c.Predicted_Values)
+        #plt.xlim(df.index.min(), df_c.index.max() + n_lat)
+        plt.grid()
         plt.legend()
-        # plt.title("Porównanie oryginalnych wartości i prognoz ARIMA")
+        plt.title("Porównanie oryginalnych wartości i prognoz ARIMA")
         plt.xlabel("Rok")
         plt.ylabel("PKB(w mln zł)")
         plt.show()
