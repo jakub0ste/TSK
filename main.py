@@ -1,9 +1,6 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy import stats
-from sklearn.linear_model import LinearRegression
-from sklearn.metrics import mean_squared_error
 from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
 from statsmodels.tsa.stattools import adfuller, acf, pacf
 import tkinter as tk
@@ -86,24 +83,8 @@ class PredykcjaPKB:
             ma_pred = np.zeros_like(ar_pred)
         predictions = ar_pred + ma_pred
 
-        # reverted_predictions = np.zeros_like(predictions)
-        # reverted_predictions[0] = predictions[0] + data['Value'].iloc[-(self.d + 1)]
-        initial_value = data['Value'].iloc[-1]  # Last actual observed value
+        initial_value = data['Value'].iloc[-1]
         reverted_predictions = np.concatenate(([initial_value], predictions)).cumsum()
-
-        # for i in range(1, len(predictions)):
-        #     reverted_predictions[i] = predictions[i] + reverted_predictions[i - 1]
-
-        forecast = [reverted_predictions[-1] + (i + 1) * np.mean(predictions) for i in range(forecast_steps)]
-
-        # reverted_predictions_rec = diff_data.copy()
-        # forecast = []
-        # for _ in range(forecast_steps):
-        #     forecast_step = self.recursive_forecast(reverted_predictions_rec['Value'].values)
-        #
-        #     # Append the forecasted step to the overall forecast and use it for the next step
-        #     forecast.append(forecast_step[0])
-        #     reverted_predictions_rec.loc[reverted_predictions_rec.index.max()+1, 'Value'] = forecast_step[0]
 
         forecast = []
         last_values = list(diff_data)
@@ -123,100 +104,114 @@ class PredykcjaPKB:
 
         return [reverted_predictions[-1]], forecast
 
-    def recursive_forecast(self, data_in):
-        data = data_in
-        ar_model = self.AR(data)
-        last_lags = data[-self.p:].reshape(1, -1)
-        ar_pred = ar_model.predict(last_lags)
-        residuals = data - ar_pred
-        if self.q > 0:
-            ma_model = self.MA(residuals)
-            last_q_lags = residuals[-self.q:] if self.q > 1 else [residuals[-1]]
-            last_q_lags = np.array(last_q_lags).reshape(1, -1)
-            ma_pred = ma_model.predict(last_q_lags)
-        else:
-            ma_pred = 0
-        predictions = ar_pred + ma_pred
+    def calculate_overlap(self, data, forecast_steps=5):
+        result =[]
+        for i in range(self.p + self.d + 1, len(data)):
+            diff_data = difference(data['Value'].values[:i], self.d)
 
-        reverted_predictions = np.zeros_like(predictions)
-        reverted_predictions[0] = predictions[0] + data[-(self.d + 1)]
+            if len(diff_data) <= self.p:
+                raise ValueError(f"Insufficient data of len {len(diff_data)} for {self.p} AR lags after differencing.")
 
-        for i in range(1, len(predictions)):
-            reverted_predictions[i] = predictions[i] + reverted_predictions[i - 1]
+            # AR model fitting
+            ar_model = self.AR(diff_data['Value'].values)
 
-        return reverted_predictions
+            last_lags = diff_data[-self.p:].values.reshape(1, -1)
+            ar_pred = ar_model.predict(last_lags)
+            residuals = diff_data['Value'].values - ar_pred
+            if self.q > 0:
+                ma_model = self.MA(residuals)
+                ma_pred = ma_model.predict(residuals[-self.q:].reshape(1, -1))
+            else:
+                ma_pred = np.zeros_like(ar_pred)
+            predictions = ar_pred + ma_pred
+            initial_value = data['Value'].iloc[i]
+            reverted_predictions = np.concatenate(([initial_value], predictions)).cumsum()
+            result.append(reverted_predictions[-1])
+        return result
 
-
-    def AR_overlap(self, df, n_przewidywan = 5):
-
-        df_temp = df
-
-        # Generating the lagged p terms
-        for i in range(1, self.p + 1):
-            df_temp['Shifted_values_%d' % i] = df_temp['Value'].shift(i)
-
-        df_temp = df_temp.ffill()
-
-        train_size = int(0.8 * df_temp.shape[0])
-
-        # Breaking data set into test and training
-        df_train = pd.DataFrame(df_temp[0:train_size])
-        df_test = pd.DataFrame(df_temp[train_size:df.shape[0]])
-
-        df_train_2 = df_train.dropna()
-        # X contains the lagged values ,hence we skip the first column
-        X_train = df_train_2.iloc[:, 1:].values.reshape(-1, self.p)
-        # Y contains the value,it is the first column
-        y_train = df_train_2.iloc[:, 0].values.reshape(-1, 1)
-
-        lr = LinearRegression()
-        lr.fit(X_train, y_train)
-
-        theta = lr.coef_.T
-        intercept = lr.intercept_
-        df_train_2['Predicted_Values'] = X_train.dot(theta) + intercept
-
-        X_test = df_test.iloc[:, 1:].values.reshape(-1, self.p)
-        df_test['Predicted_Values'] = X_test.dot(theta) + intercept
-
-        last_values = df['Value'].iloc[-self.p:].values
-        future_predictions = []
-        for _ in range(n_przewidywan):
-            future_pred = lr.predict(last_values.reshape(1, -1))[0, 0]
-            #future_pred = max(future_pred, 0)
-            future_predictions.append(future_pred)
-
-            # Update last_values for next prediction
-            last_values = np.roll(last_values, -1)
-            last_values[-1] = future_pred
-
-        offset = df_test.index.max() - df.shape[0] + 1
-        df_future = pd.DataFrame({'Predicted_Values': future_predictions}, index=range(df.shape[0]+offset, df.shape[0] + n_przewidywan+offset))
-        return [df_train_2, df_test, df_future]
-
-    def MA_overlap(self, res):
-
-        for i in range(1, self.q + 1):
-            res['Shifted_values_%d' % i] = res['Residuals'].shift(i)
-
-        train_size = int(0.8 * res.shape[0])
-
-        res_train = pd.DataFrame(res[0:train_size])
-        res_test = pd.DataFrame(res[train_size:res.shape[0]])
-
-        res_train_2 = res_train.dropna()
-        X_train = res_train_2.iloc[:, 1:].values.reshape(-1, self.q)
-        y_train = res_train_2.iloc[:, 0].values.reshape(-1, 1)
-        lr = LinearRegression()
-        lr.fit(X_train, y_train)
-
-        theta = lr.coef_.T
-        intercept = lr.intercept_
-        res_train_2['Predicted_Values'] = X_train.dot(theta) + intercept
-
-        X_test = res_test.iloc[:, 1:].values.reshape(-1, self.q)
-        res_test['Predicted_Values'] = X_test.dot(theta) + intercept
-        return [res_train_2, res_test]
+    # def AR_overlap(self, df, n_przewidywan=5):
+    #     df_temp = df.copy()
+    #
+    #     # Generating the lagged p terms
+    #     for i in range(1, self.p + 1):
+    #         df_temp[f'Shifted_values_{i}'] = df_temp['Value'].shift(i)
+    #
+    #     df_temp = df_temp.ffill()
+    #
+    #     train_size = int(0.8 * df_temp.shape[0])
+    #
+    #     # Breaking data set into training and testing
+    #     df_train = df_temp.iloc[:train_size].dropna()
+    #     df_test = df_temp.iloc[train_size:].copy()
+    #
+    #     # X and Y preparation
+    #     X_train = df_train.iloc[:, 1:self.p + 1].values
+    #     y_train = df_train.iloc[:, 0].values
+    #
+    #     # Train the model
+    #     lr = CustomLinearRegression()
+    #     lr.fit(X_train, y_train)
+    #
+    #     # Coefficients and intercept
+    #     theta = lr.coefficients
+    #     intercept = lr.intercept
+    #
+    #     # Calculate predictions on training data
+    #     df_train['Predicted_Values'] = X_train.dot(theta) + intercept
+    #
+    #     # Test set predictions
+    #     X_test = df_test.iloc[:, 1:self.p + 1].values
+    #     df_test['Predicted_Values'] = X_test.dot(theta) + intercept
+    #
+    #     # Future predictions
+    #     last_values = df['Value'].iloc[-self.p:].values
+    #     future_predictions = []
+    #     for _ in range(n_przewidywan):
+    #         future_pred = lr.predict(last_values.reshape(1, -1))[0]
+    #         future_predictions.append(future_pred)
+    #
+    #         # Update last_values for next prediction
+    #         last_values = np.roll(last_values, -1)
+    #         last_values[-1] = future_pred
+    #
+    #     # Offset and future DataFrame
+    #     offset = df_test.index.max() - df.shape[0] + 1
+    #     df_future = pd.DataFrame({'Predicted_Values': future_predictions},
+    #                              index=range(df.shape[0] + offset, df.shape[0] + n_przewidywan + offset))
+    #
+    #     return [df_train, df_test, df_future]
+    #
+    # def MA_overlap(self, res):
+    #     # Generating the lagged q terms
+    #     for i in range(1, self.q + 1):
+    #         res[f'Shifted_values_{i}'] = res['Residuals'].shift(i)
+    #
+    #     train_size = int(0.8 * res.shape[0])
+    #
+    #     # Split data into training and testing sets
+    #     res_train = res.iloc[:train_size].dropna().copy()
+    #     res_test = res.iloc[train_size:].copy()
+    #
+    #     # Prepare X and y for training
+    #     X_train = res_train.iloc[:, 1:self.q + 1].values
+    #     y_train = res_train.iloc[:, 0].values
+    #
+    #     # Train the model
+    #     lr = CustomLinearRegression()
+    #     lr.fit(X_train, y_train)
+    #
+    #     # Extract coefficients and intercept
+    #     theta = lr.coefficients  # Should be shape (self.q,)
+    #     intercept = lr.intercept
+    #
+    #     # Training predictions
+    #     res_train['Predicted_Values'] = X_train.dot(theta) + intercept
+    #
+    #     # Testing predictions
+    #     X_test = res_test.iloc[:, 1:self.q + 1].values
+    #     res_test['Predicted_Values'] = X_test.dot(theta) + intercept
+    #
+    #     return [res_train, res_test]
 
 
 class CustomLinearRegression:
@@ -230,7 +225,11 @@ class CustomLinearRegression:
 
         # Calculate coefficients using the normal equation: (X^T * X)^-1 * X^T * y
         X_transpose = X.T
-        XTX_inv = np.linalg.inv(X_transpose @ X)
+        # XTX_inv = np.linalg.pinv(X_transpose @ X)
+        U, s, Vt = np.linalg.svd(X_transpose @ X)
+        epsilon = 1e-10
+        S_inv = np.diag(1 / (s+epsilon))
+        XTX_inv = Vt.T @ S_inv @ U.T
         XTy = X_transpose @ y
         params = XTX_inv @ XTy  # Calculate (n_features + 1,) array of params
 
@@ -348,31 +347,11 @@ def main():
         df['Value'] = pd.to_numeric(df['Value'], errors='coerce') * 1_000_000
 
         df_Values = df['Value']
-        df_testing = pd.DataFrame(np.log(df.Value).diff().diff(1))
         d = find_d(df_Values.dropna())
         p, q = find_p_q(df_Values.dropna(), d)
         arima_model = PredykcjaPKB(p, d, q)
         predictions, forecast = arima_model.calculate(df)
-        #print(df)
-        # print(predictions)
-        # print(forecast)
-        n_lat = 5
-        [df_train, df_test, df_future] = arima_model.AR_overlap(pd.DataFrame(df_testing.Value), n_lat)
-        df_c = pd.concat([df_train, df_test])
-        res = pd.DataFrame()
-        res['Residuals'] = df_c['Value'] - df_c['Predicted_Values']
-        [res_train, res_test] = arima_model.MA_overlap(pd.DataFrame(res.Residuals))
-        res_c = pd.concat([res_train, res_test])
-        if 'Predicted_Values' in res_c.columns:
-            df_c['Predicted_Values'] = df_c['Predicted_Values'].add(res_c['Predicted_Values'], fill_value=0)
-
-        df_c.Value += np.log(df).shift(1).Value
-        df_c.Value += np.log(df).diff().shift(1).Value
-        df_c.Predicted_Values += np.log(df).shift(1).Value
-        df_c.Predicted_Values += np.log(df).diff().shift(1).Value
-
-        df_c.Value = np.exp(df_c.Value)
-        df_c.Predicted_Values = np.exp(df_c.Predicted_Values)
+        overlap = arima_model.calculate_overlap(df)
         # Wyświetlenie wyników
         plt.figure(figsize=(20, 6))
         forecast_years = np.arange(df.index[-1] + 1, df.index[-1] + 1 + len(forecast))
@@ -395,7 +374,8 @@ def main():
         plt.plot(test_index, test_values, linestyle='-.')
 
         plt.plot(forecast_years, forecast, label='Prognozy ARIMA', linestyle=':')
-        plt.plot(df_c.index, df_c['Predicted_Values'], label='Prognozy ARIMA', linestyle='--')
+        overlap_index = np.arange(df.index[arima_model.p + arima_model.d + 1], df.index[arima_model.p + arima_model.d + 1] + len(overlap))
+        plt.plot(overlap_index, overlap, label='Prognozy ARIMA', linestyle='--')
         # plt.xlim(df.index.min(), df_c.index.max() + n_lat)
         plt.grid()
         plt.legend()
