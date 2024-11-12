@@ -105,15 +105,21 @@ class PredykcjaPKB:
         #     forecast.append(forecast_step[0])
         #     reverted_predictions_rec.loc[reverted_predictions_rec.index.max()+1, 'Value'] = forecast_step[0]
 
-        # forecast = []
-        # last_values = diff_data
-        # last_values = last_values._append(pd.Series(predictions[-1]), ignore_index=True)
-        # for _ in range(forecast_steps):
-        #     next_pred = ar_model.predict(last_values[-self.p:].values.reshape(1, -1))
-        #     forecast.append(next_pred[0])
-        #     last_values = last_values._append(next_pred[0])  # Update for next iteration
-        #
-        # forecast = np.concatenate(([reverted_predictions[-1]], forecast)).cumsum()
+        forecast = []
+        last_values = list(diff_data)
+        last_values.append(predictions[-1])
+        for _ in range(forecast_steps):
+            last_values = np.nan_to_num(pd.to_numeric(last_values, errors='coerce').astype(float)).tolist()
+            if len(last_values) < self.p:
+                padding = [last_values[0]] * (self.p - len(last_values))  # Repeat the first value as padding
+                last_values = padding + last_values  # Extend the list
+            else:
+                last_values = last_values[-self.p:]
+            next_pred = ar_model.predict(np.array(last_values).reshape(1, -1))
+            forecast.append(next_pred[0])
+            last_values.append(next_pred[0])
+
+        forecast = np.concatenate(([reverted_predictions[-1]], forecast)).cumsum()
 
         return [reverted_predictions[-1]], forecast
 
@@ -348,12 +354,12 @@ def main():
         print(predictions)
         print(forecast)
 
-        #plt.plot(combined_years, combined_values, label='Połączone prognozy', color='red')
+        plt.plot(combined_years, combined_values, label='Połączone prognozy', color='red')
         plt.plot(df.index, df['Value'], label='Oryginalne wartości')
         #plt.plot(test_index[-1], predictions, label='Prognozy ARIMA', linestyle='-.')
         plt.plot(test_index, test_values, linestyle='-.')
 
-        #plt.plot(forecast_years, forecast, label='Prognozy ARIMA', linestyle=':')
+        plt.plot(forecast_years, forecast, label='Prognozy ARIMA', linestyle=':')
         plt.plot(df_c.index, df_c['Predicted_Values'], label='Prognozy ARIMA', linestyle='--')
         # plt.xlim(df.index.min(), df_c.index.max() + n_lat)
         plt.grid()
