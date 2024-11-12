@@ -49,7 +49,7 @@ class PredykcjaPKB:
         X = df.iloc[:, 1:].values  # Select lagged values as features
         y = df['Value'].values  # Original values as target
 
-        model = LinearRegression()
+        model = CustomLinearRegression()
         model.fit(X, y)
         return model
 
@@ -64,7 +64,7 @@ class PredykcjaPKB:
         X = res_df.iloc[:, 1:].values
         y = res_df['Residuals'].values
 
-        model = LinearRegression()
+        model = CustomLinearRegression()
         model.fit(X, y)
         return model
 
@@ -217,6 +217,41 @@ class PredykcjaPKB:
         X_test = res_test.iloc[:, 1:].values.reshape(-1, self.q)
         res_test['Predicted_Values'] = X_test.dot(theta) + intercept
         return [res_train_2, res_test]
+
+
+class CustomLinearRegression:
+    def __init__(self):
+        self.coefficients = None
+        self.intercept = None
+
+    def fit(self, X, y):
+        # Add a column of ones to X to account for the intercept term
+        X = np.c_[np.ones(X.shape[0]), X]  # Shape (n_samples, n_features + 1)
+
+        # Calculate coefficients using the normal equation: (X^T * X)^-1 * X^T * y
+        X_transpose = X.T
+        XTX_inv = np.linalg.inv(X_transpose @ X)
+        XTy = X_transpose @ y
+        params = XTX_inv @ XTy  # Calculate (n_features + 1,) array of params
+
+        # Separate intercept and coefficients
+        self.intercept = params[0]
+        self.coefficients = params[1:]
+
+    def predict(self, X):
+        # Check if the model is fitted
+        if self.coefficients is None or self.intercept is None:
+            raise ValueError("Model is not fitted yet. Call 'fit' with training data first.")
+
+        # Add a column of ones to X to account for the intercept term
+        X = np.c_[np.ones(X.shape[0]), X]
+
+        # Predict: y = X @ params, where params includes intercept and coefficients
+        predictions = X @ np.concatenate(([self.intercept], self.coefficients))
+        return predictions
+
+    def __str__(self):
+        return f"CustomLinearRegression(intercept={self.intercept}, coefficients={self.coefficients})"
 
 
 def adf_test(series, max_lag=1):
