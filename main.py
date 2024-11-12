@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+# from scipy import stats
 from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
 from statsmodels.tsa.stattools import adfuller, acf, pacf
 import tkinter as tk
@@ -105,7 +106,7 @@ class PredykcjaPKB:
         return [reverted_predictions[-1]], forecast
 
     def calculate_overlap(self, data, forecast_steps=5):
-        result =[]
+        result = []
         for i in range(self.p + self.d + 1, len(data)):
             diff_data = difference(data['Value'].values[:i], self.d)
 
@@ -228,7 +229,7 @@ class CustomLinearRegression:
         # XTX_inv = np.linalg.pinv(X_transpose @ X)
         U, s, Vt = np.linalg.svd(X_transpose @ X)
         epsilon = 1e-10
-        S_inv = np.diag(1 / (s+epsilon))
+        S_inv = np.diag(1 / (s + epsilon))
         XTX_inv = Vt.T @ S_inv @ U.T
         XTy = X_transpose @ y
         params = XTX_inv @ XTy  # Calculate (n_features + 1,) array of params
@@ -260,6 +261,47 @@ def adf_test(series, max_lag=1):
     critical_values = adf_result[4]
 
     return adf_statistic, p_value, critical_values
+    # n = len(series)
+    # # 1. Różnicowanie szeregu czasowego
+    # y_diff = np.diff(series)
+    # y_diff = y_diff[max_lag:]
+    #
+    # # 2. Tworzenie regresorów z opóźnionych wartości
+    # lagged_series = series[:-1]
+    # lagged_series = lagged_series[max_lag:]
+    #
+    # X = np.column_stack([lagged_series] + [np.roll(y_diff, i) for i in range(1, max_lag + 1)])
+    # X = np.column_stack((np.ones(len(X)), X))  # Dodajemy stałą
+    #
+    # # 3. Regresja OLS dla obliczenia statystyki ADF
+    # beta = linear_regression(y_diff, X)
+    #
+    # # 4. Statystyka testowa ADF: beta[1] / błędy standardowe
+    # y_pred = X @ beta
+    # residuals = y_diff - y_pred
+    #
+    # sse = np.sum(residuals ** 2)
+    # sigma = np.sqrt(sse / (len(y_diff) - len(beta)))
+    # se_beta1 = sigma / np.sqrt(np.sum((lagged_series - np.mean(lagged_series)) ** 2))
+    #
+    # adf_statistic = beta[1] / se_beta1
+    #
+    # # 5. P-wartość i wartości krytyczne (szacowane manualnie)
+    # p_value = 2 * (1 - stats.norm.cdf(abs(adf_statistic)))
+    # critical_values = {
+    #     "1%": -3.430,
+    #     "5%": -2.860,
+    #     "10%": -2.570
+    # }
+    #
+    # return adf_statistic, p_value, max_lag, critical_values
+
+
+# def linear_regression(y, X):
+#     # X.T * X - macierz kowariancji
+#     XtX_inv = np.linalg.inv(X.T @ X)
+#     # (X.T * X)^(-1) * X.T * y - estymacja współczynników
+#     return XtX_inv @ X.T @ y
 
 
 def find_d(series):
@@ -370,11 +412,12 @@ def main():
 
         plt.plot(combined_years, combined_values, label='Połączone prognozy', color='red')
         plt.plot(df.index, df['Value'], label='Oryginalne wartości')
-        #plt.plot(test_index[-1], predictions, label='Prognozy ARIMA', linestyle='-.')
+        # plt.plot(test_index[-1], predictions, label='Prognozy ARIMA', linestyle='-.')
         plt.plot(test_index, test_values, linestyle='-.')
 
         plt.plot(forecast_years, forecast, label='Prognozy ARIMA', linestyle=':')
-        overlap_index = np.arange(df.index[arima_model.p + arima_model.d + 1], df.index[arima_model.p + arima_model.d + 1] + len(overlap))
+        overlap_index = np.arange(df.index[arima_model.p + arima_model.d + 1],
+                                  df.index[arima_model.p + arima_model.d + 1] + len(overlap))
         plt.plot(overlap_index, overlap, label='Prognozy ARIMA', linestyle='--')
         # plt.xlim(df.index.min(), df_c.index.max() + n_lat)
         plt.grid()
