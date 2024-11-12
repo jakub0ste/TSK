@@ -81,30 +81,41 @@ class PredykcjaPKB:
         residuals = diff_data['Value'].values - ar_pred
         if self.q > 0:
             ma_model = self.MA(residuals)
-            last_q_lags = residuals[-self.q:] if self.q > 1 else [residuals[-1]]
-            last_q_lags = np.array(last_q_lags).reshape(1, -1)
-            ma_pred = ma_model.predict(last_q_lags)
+            ma_pred = ma_model.predict(residuals[-self.q:].reshape(1, -1))
         else:
-            ma_pred = 0
+            ma_pred = np.zeros_like(ar_pred)
         predictions = ar_pred + ma_pred
 
-        reverted_predictions = np.zeros_like(predictions)
-        reverted_predictions[0] = predictions[0] + data['Value'].iloc[-(self.d + 1)]
+        # reverted_predictions = np.zeros_like(predictions)
+        # reverted_predictions[0] = predictions[0] + data['Value'].iloc[-(self.d + 1)]
+        initial_value = data['Value'].iloc[-1]  # Last actual observed value
+        reverted_predictions = np.concatenate(([initial_value], predictions)).cumsum()
 
-        for i in range(1, len(predictions)):
-            reverted_predictions[i] = predictions[i] + reverted_predictions[i - 1]
+        # for i in range(1, len(predictions)):
+        #     reverted_predictions[i] = predictions[i] + reverted_predictions[i - 1]
 
-        #forecast = [reverted_predictions[-1] + (i + 1) * np.mean(predictions) for i in range(forecast_steps)]
-        reverted_predictions_rec = diff_data.copy()
-        forecast = []
-        for _ in range(forecast_steps):
-            forecast_step = self.recursive_forecast(reverted_predictions_rec['Value'].values)
+        forecast = [reverted_predictions[-1] + (i + 1) * np.mean(predictions) for i in range(forecast_steps)]
 
-            # Append the forecasted step to the overall forecast and use it for the next step
-            forecast.append(forecast_step[0])
-            reverted_predictions_rec.loc[reverted_predictions_rec.index.max()+1, 'Value'] = forecast_step[0]
+        # reverted_predictions_rec = diff_data.copy()
+        # forecast = []
+        # for _ in range(forecast_steps):
+        #     forecast_step = self.recursive_forecast(reverted_predictions_rec['Value'].values)
+        #
+        #     # Append the forecasted step to the overall forecast and use it for the next step
+        #     forecast.append(forecast_step[0])
+        #     reverted_predictions_rec.loc[reverted_predictions_rec.index.max()+1, 'Value'] = forecast_step[0]
 
-        return reverted_predictions, forecast
+        # forecast = []
+        # last_values = diff_data
+        # last_values = last_values._append(pd.Series(predictions[-1]), ignore_index=True)
+        # for _ in range(forecast_steps):
+        #     next_pred = ar_model.predict(last_values[-self.p:].values.reshape(1, -1))
+        #     forecast.append(next_pred[0])
+        #     last_values = last_values._append(next_pred[0])  # Update for next iteration
+        #
+        # forecast = np.concatenate(([reverted_predictions[-1]], forecast)).cumsum()
+
+        return [reverted_predictions[-1]], forecast
 
     def recursive_forecast(self, data_in):
         data = data_in
@@ -301,9 +312,9 @@ def main():
         p, q = find_p_q(df_Values.dropna(), d)
         arima_model = PredykcjaPKB(p, d, q)
         predictions, forecast = arima_model.calculate(df)
-        print(df)
-        print(predictions)
-        print(forecast)
+        #print(df)
+        # print(predictions)
+        # print(forecast)
         n_lat = 5
         [df_train, df_test, df_future] = arima_model.AR_overlap(pd.DataFrame(df_testing.Value), n_lat)
         df_c = pd.concat([df_train, df_test])
@@ -327,10 +338,22 @@ def main():
         combined_years = np.concatenate([df.index, forecast_years])
         combined_values = np.concatenate([df['Value'].values, forecast])
 
-        plt.plot(combined_years, combined_values, label='Połączone prognozy', color='red')
+        test_index = np.arange(df.index[-1], df.index[-1] + 1 + len(predictions))
+        testList = list()
+        testList.append(df['Value'].iloc[-1])
+        testList.append(predictions[-1])
+        test_values = pd.Series(testList, index=test_index[0:])
+        print(test_values)
+        print(df['Value'].iloc[-1])
+        print(predictions)
+        print(forecast)
+
+        #plt.plot(combined_years, combined_values, label='Połączone prognozy', color='red')
         plt.plot(df.index, df['Value'], label='Oryginalne wartości')
-        plt.plot(df.index[-len(predictions):], predictions, label='Prognozy ARIMA', linestyle='--')
-        plt.plot(forecast_years, forecast, label='Prognozy ARIMA', linestyle=':')
+        #plt.plot(test_index[-1], predictions, label='Prognozy ARIMA', linestyle='-.')
+        plt.plot(test_index, test_values, linestyle='-.')
+
+        #plt.plot(forecast_years, forecast, label='Prognozy ARIMA', linestyle=':')
         plt.plot(df_c.index, df_c['Predicted_Values'], label='Prognozy ARIMA', linestyle='--')
         # plt.xlim(df.index.min(), df_c.index.max() + n_lat)
         plt.grid()
