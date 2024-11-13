@@ -269,7 +269,7 @@ def on_file_select():
 def main():
     window = tk.Tk()
     window.title("ACF and PACF Plotter")
-    window.geometry("800x600")
+    window.geometry("1920x900")
 
     global frame
     frame = ttk.Frame(window, padding="10")
