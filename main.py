@@ -6,6 +6,7 @@ from statsmodels.tsa.stattools import adfuller
 import tkinter as tk
 from tkinter import filedialog, ttk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import mplcursors
 
 class PredykcjaPKB:
     def __init__(self, p, d, q):
@@ -194,10 +195,12 @@ def calculate_forecast(p, q, df):
     ax.set_xlabel("Year")
     ax.set_ylabel("GDP (in million PLN)")
 
-    # Annotate the forecasted values on the plot
-    for i, txt in enumerate(forecast):
-        ax.plot(forecast_years[i], forecast[i], 'ro')  # Add a point for each forecasted value
-        ax.annotate(f'{forecast_years[i]} {txt:.2f} zł', (forecast_years[i], forecast[i]), textcoords="offset points", xytext=(0,10), ha='center')
+    # Add points for each forecasted value
+    scatter = ax.scatter(forecast_years, forecast, color='red')
+
+    # Use mplcursors to display annotations on hover
+    cursor = mplcursors.cursor(scatter, hover=True)
+    cursor.connect("add", lambda sel: sel.annotation.set_text(f'{forecast_years[sel.index]}: {forecast[sel.index]:.2f} zł'))
 
     for widget in frame.winfo_children():
         widget.destroy()
