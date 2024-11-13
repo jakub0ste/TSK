@@ -196,7 +196,8 @@ def calculate_forecast(p, q, df):
 
     # Annotate the forecasted values on the plot
     for i, txt in enumerate(forecast):
-        ax.annotate(f'{txt:.2f}', (forecast_years[i], forecast[i]), textcoords="offset points", xytext=(0,10), ha='center')
+        ax.plot(forecast_years[i], forecast[i], 'ro')  # Add a point for each forecasted value
+        ax.annotate(f'{forecast_years[i]} {txt:.2f} zł', (forecast_years[i], forecast[i]), textcoords="offset points", xytext=(0,10), ha='center')
 
     for widget in frame.winfo_children():
         widget.destroy()
