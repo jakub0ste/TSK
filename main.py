@@ -1,33 +1,13 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-# from scipy import stats
 from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
-from statsmodels.tsa.stattools import adfuller, acf, pacf
+from statsmodels.tsa.stattools import adfuller
 import tkinter as tk
-from tkinter import filedialog
-import openpyxl
-
-
-class KalkulatorPKB:
-    def __init__(self):
-        pass
-
-    def pkb_metoda_dochodowa(self, wynagrodzenia, kapital, podatki, dotacje):
-        pkb = wynagrodzenia + kapital + podatki - dotacje
-        return pkb
-
-    def pkb_metoda_wydatkowa(self, konsumpcja, inwestycje, wydatki_rzadowe, eksport, importy):
-        pkb = konsumpcja + inwestycje + wydatki_rzadowe + (eksport - importy)
-        return pkb
-
-    def pkb_metoda_produkcji(self, produkcja, zuzycie):
-        pkb = produkcja - zuzycie
-        return pkb
-
+from tkinter import filedialog, ttk
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 class PredykcjaPKB:
-
     def __init__(self, p, d, q):
         self.p = p
         self.d = d
@@ -41,11 +21,9 @@ class PredykcjaPKB:
         for i in range(1, self.p + 1):
             df[f'Lags_{i}'] = df['Value'].shift(i)
 
-        # Drop rows with NaN values created by lagging
         df.dropna(inplace=True)
-
-        X = df.iloc[:, 1:].values  # Select lagged values as features
-        y = df['Value'].values  # Original values as target
+        X = df.iloc[:, 1:].values
+        y = df['Value'].values
 
         model = CustomLinearRegression()
         model.fit(X, y)
@@ -56,9 +34,7 @@ class PredykcjaPKB:
         for i in range(1, self.q + 1):
             res_df[f'Lags_{i}'] = res_df['Residuals'].shift(i)
 
-        # Drop NaN values created by lagging
         res_df.dropna(inplace=True)
-
         X = res_df.iloc[:, 1:].values
         y = res_df['Residuals'].values
 
@@ -71,9 +47,7 @@ class PredykcjaPKB:
         if len(diff_data) <= self.p:
             raise ValueError(f"Insufficient data for {self.p} AR lags after differencing.")
 
-        # AR model fitting
         ar_model = self.AR(diff_data['Value'].values)
-
         last_lags = diff_data[-self.p:].values.reshape(1, -1)
         ar_pred = ar_model.predict(last_lags)
         residuals = diff_data['Value'].values - ar_pred
@@ -93,8 +67,8 @@ class PredykcjaPKB:
         for _ in range(forecast_steps):
             last_values = np.nan_to_num(pd.to_numeric(last_values, errors='coerce').astype(float)).tolist()
             if len(last_values) < self.p:
-                padding = [last_values[0]] * (self.p - len(last_values))  # Repeat the first value as padding
-                last_values = padding + last_values  # Extend the list
+                padding = [last_values[0]] * (self.p - len(last_values))
+                last_values = padding + last_values
             else:
                 last_values = last_values[-self.p:]
             next_pred = ar_model.predict(np.array(last_values).reshape(1, -1))
@@ -102,20 +76,16 @@ class PredykcjaPKB:
             last_values.append(next_pred[0])
 
         forecast = np.concatenate(([reverted_predictions[-1]], forecast)).cumsum()
-
         return [reverted_predictions[-1]], forecast
 
     def calculate_overlap(self, data, forecast_steps=5):
         result = []
         for i in range(self.p + self.d + 1, len(data)):
             diff_data = difference(data['Value'].values[:i], self.d)
-
             if len(diff_data) <= self.p:
                 raise ValueError(f"Insufficient data of len {len(diff_data)} for {self.p} AR lags after differencing.")
 
-            # AR model fitting
             ar_model = self.AR(diff_data['Value'].values)
-
             last_lags = diff_data[-self.p:].values.reshape(1, -1)
             ar_pred = ar_model.predict(last_lags)
             residuals = diff_data['Value'].values - ar_pred
@@ -130,229 +100,59 @@ class PredykcjaPKB:
             result.append(reverted_predictions[-1])
         return result
 
-    # def AR_overlap(self, df, n_przewidywan=5):
-    #     df_temp = df.copy()
-    #
-    #     # Generating the lagged p terms
-    #     for i in range(1, self.p + 1):
-    #         df_temp[f'Shifted_values_{i}'] = df_temp['Value'].shift(i)
-    #
-    #     df_temp = df_temp.ffill()
-    #
-    #     train_size = int(0.8 * df_temp.shape[0])
-    #
-    #     # Breaking data set into training and testing
-    #     df_train = df_temp.iloc[:train_size].dropna()
-    #     df_test = df_temp.iloc[train_size:].copy()
-    #
-    #     # X and Y preparation
-    #     X_train = df_train.iloc[:, 1:self.p + 1].values
-    #     y_train = df_train.iloc[:, 0].values
-    #
-    #     # Train the model
-    #     lr = CustomLinearRegression()
-    #     lr.fit(X_train, y_train)
-    #
-    #     # Coefficients and intercept
-    #     theta = lr.coefficients
-    #     intercept = lr.intercept
-    #
-    #     # Calculate predictions on training data
-    #     df_train['Predicted_Values'] = X_train.dot(theta) + intercept
-    #
-    #     # Test set predictions
-    #     X_test = df_test.iloc[:, 1:self.p + 1].values
-    #     df_test['Predicted_Values'] = X_test.dot(theta) + intercept
-    #
-    #     # Future predictions
-    #     last_values = df['Value'].iloc[-self.p:].values
-    #     future_predictions = []
-    #     for _ in range(n_przewidywan):
-    #         future_pred = lr.predict(last_values.reshape(1, -1))[0]
-    #         future_predictions.append(future_pred)
-    #
-    #         # Update last_values for next prediction
-    #         last_values = np.roll(last_values, -1)
-    #         last_values[-1] = future_pred
-    #
-    #     # Offset and future DataFrame
-    #     offset = df_test.index.max() - df.shape[0] + 1
-    #     df_future = pd.DataFrame({'Predicted_Values': future_predictions},
-    #                              index=range(df.shape[0] + offset, df.shape[0] + n_przewidywan + offset))
-    #
-    #     return [df_train, df_test, df_future]
-    #
-    # def MA_overlap(self, res):
-    #     # Generating the lagged q terms
-    #     for i in range(1, self.q + 1):
-    #         res[f'Shifted_values_{i}'] = res['Residuals'].shift(i)
-    #
-    #     train_size = int(0.8 * res.shape[0])
-    #
-    #     # Split data into training and testing sets
-    #     res_train = res.iloc[:train_size].dropna().copy()
-    #     res_test = res.iloc[train_size:].copy()
-    #
-    #     # Prepare X and y for training
-    #     X_train = res_train.iloc[:, 1:self.q + 1].values
-    #     y_train = res_train.iloc[:, 0].values
-    #
-    #     # Train the model
-    #     lr = CustomLinearRegression()
-    #     lr.fit(X_train, y_train)
-    #
-    #     # Extract coefficients and intercept
-    #     theta = lr.coefficients  # Should be shape (self.q,)
-    #     intercept = lr.intercept
-    #
-    #     # Training predictions
-    #     res_train['Predicted_Values'] = X_train.dot(theta) + intercept
-    #
-    #     # Testing predictions
-    #     X_test = res_test.iloc[:, 1:self.q + 1].values
-    #     res_test['Predicted_Values'] = X_test.dot(theta) + intercept
-    #
-    #     return [res_train, res_test]
-
-
 class CustomLinearRegression:
     def __init__(self):
         self.coefficients = None
         self.intercept = None
 
     def fit(self, X, y):
-        # Add a column of ones to X to account for the intercept term
-        X = np.c_[np.ones(X.shape[0]), X]  # Shape (n_samples, n_features + 1)
-
-        # Calculate coefficients using the normal equation: (X^T * X)^-1 * X^T * y
+        X = np.c_[np.ones(X.shape[0]), X]
         X_transpose = X.T
-        # XTX_inv = np.linalg.pinv(X_transpose @ X)
         U, s, Vt = np.linalg.svd(X_transpose @ X)
         epsilon = 1e-10
         S_inv = np.diag(1 / (s + epsilon))
         XTX_inv = Vt.T @ S_inv @ U.T
         XTy = X_transpose @ y
-        params = XTX_inv @ XTy  # Calculate (n_features + 1,) array of params
+        params = XTX_inv @ XTy
 
-        # Separate intercept and coefficients
         self.intercept = params[0]
         self.coefficients = params[1:]
 
     def predict(self, X):
-        # Check if the model is fitted
         if self.coefficients is None or self.intercept is None:
             raise ValueError("Model is not fitted yet. Call 'fit' with training data first.")
-
-        # Add a column of ones to X to account for the intercept term
         X = np.c_[np.ones(X.shape[0]), X]
-
-        # Predict: y = X @ params, where params includes intercept and coefficients
         predictions = X @ np.concatenate(([self.intercept], self.coefficients))
         return predictions
-
-    def __str__(self):
-        return f"CustomLinearRegression(intercept={self.intercept}, coefficients={self.coefficients})"
-
 
 def adf_test(series, max_lag=1):
     adf_result = adfuller(series)
     adf_statistic = adf_result[0]
     p_value = adf_result[1]
     critical_values = adf_result[4]
-
     return adf_statistic, p_value, critical_values
-    # n = len(series)
-    # # 1. Różnicowanie szeregu czasowego
-    # y_diff = np.diff(series)
-    # y_diff = y_diff[max_lag:]
-    #
-    # # 2. Tworzenie regresorów z opóźnionych wartości
-    # lagged_series = series[:-1]
-    # lagged_series = lagged_series[max_lag:]
-    #
-    # X = np.column_stack([lagged_series] + [np.roll(y_diff, i) for i in range(1, max_lag + 1)])
-    # X = np.column_stack((np.ones(len(X)), X))  # Dodajemy stałą
-    #
-    # # 3. Regresja OLS dla obliczenia statystyki ADF
-    # beta = linear_regression(y_diff, X)
-    #
-    # # 4. Statystyka testowa ADF: beta[1] / błędy standardowe
-    # y_pred = X @ beta
-    # residuals = y_diff - y_pred
-    #
-    # sse = np.sum(residuals ** 2)
-    # sigma = np.sqrt(sse / (len(y_diff) - len(beta)))
-    # se_beta1 = sigma / np.sqrt(np.sum((lagged_series - np.mean(lagged_series)) ** 2))
-    #
-    # adf_statistic = beta[1] / se_beta1
-    #
-    # # 5. P-wartość i wartości krytyczne (szacowane manualnie)
-    # p_value = 2 * (1 - stats.norm.cdf(abs(adf_statistic)))
-    # critical_values = {
-    #     "1%": -3.430,
-    #     "5%": -2.860,
-    #     "10%": -2.570
-    # }
-    #
-    # return adf_statistic, p_value, max_lag, critical_values
-
-
-# def linear_regression(y, X):
-#     # X.T * X - macierz kowariancji
-#     XtX_inv = np.linalg.inv(X.T @ X)
-#     # (X.T * X)^(-1) * X.T * y - estymacja współczynników
-#     return XtX_inv @ X.T @ y
-
 
 def find_d(series):
     d = 0
     p_value = adf_test(series)[1]
-
     while p_value >= 0.05:
         series = np.diff(series)
         d += 1
         p_value = adf_test(series)[1]
-
     return d
 
-
-def find_p_q(series, d):
-    diff_series = series.copy()
-    for _ in range(d):
-        diff_series = np.diff(diff_series)
-
-    n = len(diff_series)
-    max_lags = min(20, n // 2)
-
-    # Rysowanie wykresów ACF i PACF
-    plt.figure(figsize=(12, 6))
-
-    # ACF
-    plt.subplot(1, 2, 1)
-    plot_acf(diff_series, lags=max_lags, ax=plt.gca())
-    plt.title('ACF')
-
-    # PACF
-    plt.subplot(1, 2, 2)
-    plot_pacf(diff_series, lags=max_lags, ax=plt.gca())
-    plt.title('PACF')
-
+def plot_acf_pacf(diff_series, max_lags):
+    fig, axes = plt.subplots(1, 2, figsize=(8, 4))
+    plot_acf(diff_series, lags=max_lags, ax=axes[0])
+    axes[0].set_title('ACF')
+    plot_pacf(diff_series, lags=max_lags, ax=axes[1])
+    axes[1].set_title('PACF')
     plt.tight_layout()
-    plt.show()
-
-    # Wartości p i q można określić na podstawie wykresów ACF i PACF
-    p = int(input("Wprowadź wartość p na podstawie wykresu PACF: "))
-    q = int(input("Wprowadź wartość q na podstawie wykresu ACF: "))
-
-    return p, q
-
+    return fig
 
 def choose_file():
-    root = tk.Tk()
-    root.withdraw()
     file_path = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv"), ("Excel files", "*.xlsx")])
     return file_path
-
 
 def difference(data, d):
     diff_data = data.copy()
@@ -360,76 +160,108 @@ def difference(data, d):
         diff_data = np.diff(diff_data)
     return pd.DataFrame(diff_data, columns=['Value'])
 
+def calculate_forecast(p, q, df):
+    p = int(p)
+    q = int(q)
+    df_Values = df['Value']
+    d = find_d(df_Values.dropna())
+    arima_model = PredykcjaPKB(p, d, q)
+    predictions, forecast = arima_model.calculate(df)
+    overlap = arima_model.calculate_overlap(df)
 
-def main():
-    pd.options.mode.copy_on_write = True
-    kalkulator = KalkulatorPKB()
-    # wartości głównie przypadkowe
-    pkb_dochodowa = kalkulator.pkb_metoda_dochodowa(100801, 457823, 574000, 50000)
+    fig, ax = plt.subplots(figsize=(10, 6))
+    forecast_years = np.arange(df.index[-1] + 1, df.index[-1] + 1 + len(forecast))
+    combined_years = np.concatenate([df.index, forecast_years])
+    combined_values = np.concatenate([df['Value'].values, forecast])
 
-    pkb_wydatkowa = kalkulator.pkb_metoda_wydatkowa(140000, 60000, 40000, 30000, 20000)
+    test_index = np.arange(df.index[-1], df.index[-1] + 1 + len(predictions))
+    testList = list()
+    testList.append(df['Value'].iloc[-1])
+    testList.append(predictions[-1])
+    test_values = pd.Series(testList, index=test_index[0:])
 
-    pkb_produkcja = kalkulator.pkb_metoda_produkcji(1200000, 40000)
+    ax.plot(combined_years, combined_values, label='Combined Forecasts', color='red')
+    ax.plot(df.index, df['Value'], label='Original Values')
+    ax.plot(test_index, test_values, linestyle='-.')
 
-    print(f"PKB metodą dochodową: {pkb_dochodowa} mln zł")
-    print(f"PKB metodą wydatkową: {pkb_wydatkowa} mln zł")
-    print(f"PKB metodą produkcyjną: {pkb_produkcja} mln zł")
+    ax.plot(forecast_years, forecast, label='ARIMA Forecasts', linestyle=':')
+    overlap_index = np.arange(df.index[arima_model.p + arima_model.d + 1],
+                              df.index[arima_model.p + arima_model.d + 1] + len(overlap))
+    ax.plot(overlap_index, overlap, label='ARIMA Overlap Forecasts', linestyle='--')
+    ax.grid()
+    ax.legend()
+    ax.set_title("Comparison of Original Values and ARIMA Forecasts")
+    ax.set_xlabel("Year")
+    ax.set_ylabel("GDP (in million PLN)")
 
+    # Annotate the forecasted values on the plot
+    for i, txt in enumerate(forecast):
+        ax.annotate(f'{txt:.2f}', (forecast_years[i], forecast[i]), textcoords="offset points", xytext=(0,10), ha='center')
+
+    for widget in frame.winfo_children():
+        widget.destroy()
+
+    canvas = FigureCanvasTkAgg(fig, master=frame)
+    canvas.draw()
+    canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=1)
+
+    # Display predicted values in a table
+    tree = ttk.Treeview(frame, columns=('Year', 'Value'), show='headings')
+    tree.heading('Year', text='Year')
+    tree.heading('Value', text='Value (zł)')
+    for year, value in zip(forecast_years, forecast):
+        tree.insert('', 'end', values=(year, f'{value:.2f} zł'))
+    tree.pack(side=tk.BOTTOM, pady=10)
+
+def on_file_select():
     file_path = choose_file()
     if file_path:
         df = pd.read_excel(file_path, header=None)
-
         df.columns = df.iloc[0]
         df = df.drop(0).reset_index(drop=True)
-
         df = df.T
         df.columns = ['Value']
         df.index.name = 'Year'
-
         df['Value'] = pd.to_numeric(df['Value'], errors='coerce') * 1_000_000
-
         df_Values = df['Value']
         d = find_d(df_Values.dropna())
-        p, q = find_p_q(df_Values.dropna(), d)
-        arima_model = PredykcjaPKB(p, d, q)
-        predictions, forecast = arima_model.calculate(df)
-        overlap = arima_model.calculate_overlap(df)
-        # Wyświetlenie wyników
-        plt.figure(figsize=(20, 6))
-        forecast_years = np.arange(df.index[-1] + 1, df.index[-1] + 1 + len(forecast))
-        combined_years = np.concatenate([df.index, forecast_years])
-        combined_values = np.concatenate([df['Value'].values, forecast])
+        diff_series = np.diff(df_Values.dropna(), n=d)
+        max_lags = min(20, len(diff_series) // 2)
+        fig = plot_acf_pacf(diff_series, max_lags)
 
-        test_index = np.arange(df.index[-1], df.index[-1] + 1 + len(predictions))
-        testList = list()
-        testList.append(df['Value'].iloc[-1])
-        testList.append(predictions[-1])
-        test_values = pd.Series(testList, index=test_index[0:])
-        print(test_values)
-        print(df['Value'].iloc[-1])
-        print(predictions)
-        print(forecast)
+        for widget in frame.winfo_children():
+            widget.destroy()
 
-        plt.plot(combined_years, combined_values, label='Połączone prognozy', color='red')
-        plt.plot(df.index, df['Value'], label='Oryginalne wartości')
-        # plt.plot(test_index[-1], predictions, label='Prognozy ARIMA', linestyle='-.')
-        plt.plot(test_index, test_values, linestyle='-.')
+        canvas = FigureCanvasTkAgg(fig, master=frame)
+        canvas.draw()
+        canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=1)
 
-        plt.plot(forecast_years, forecast, label='Prognozy ARIMA', linestyle=':')
-        overlap_index = np.arange(df.index[arima_model.p + arima_model.d + 1],
-                                  df.index[arima_model.p + arima_model.d + 1] + len(overlap))
-        plt.plot(overlap_index, overlap, label='Prognozy ARIMA', linestyle='--')
-        # plt.xlim(df.index.min(), df_c.index.max() + n_lat)
-        plt.grid()
-        plt.legend()
-        plt.title("Porównanie oryginalnych wartości i prognoz ARIMA")
-        plt.xlabel("Rok")
-        plt.ylabel("PKB(w mln zł)")
-        plt.show()
+        p_label = ttk.Label(frame, text="Enter p:")
+        p_label.pack(side=tk.LEFT, padx=5)
+        p_entry = ttk.Entry(frame)
+        p_entry.pack(side=tk.LEFT, padx=5)
 
-    else:
-        print("Nie wybrano pliku.")
+        q_label = ttk.Label(frame, text="Enter q:")
+        q_label.pack(side=tk.LEFT, padx=5)
+        q_entry = ttk.Entry(frame)
+        q_entry.pack(side=tk.LEFT, padx=5)
 
+        calculate_button = ttk.Button(frame, text="Calculate", command=lambda: calculate_forecast(p_entry.get(), q_entry.get(), df))
+        calculate_button.pack(side=tk.LEFT, padx=5)
+
+def main():
+    window = tk.Tk()
+    window.title("ACF and PACF Plotter")
+    window.geometry("800x600")
+
+    global frame
+    frame = ttk.Frame(window, padding="10")
+    frame.pack(fill=tk.BOTH, expand=True)
+
+    button = ttk.Button(frame, text="Select File", command=on_file_select)
+    button.pack(side=tk.TOP, pady=10)
+
+    window.mainloop()
 
 if __name__ == '__main__':
     main()
