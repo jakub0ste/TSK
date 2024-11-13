@@ -218,6 +218,15 @@ def calculate_forecast(p, q, df):
     tree.pack(side=tk.BOTTOM, pady=10)
 
 def on_file_select():
+    def validate_input(new_value):
+        return new_value.isdigit() and 0 <= int(new_value) <= 9
+
+    def check_entries(*args):
+        if p_entry.get() and q_entry.get():
+            calculate_button.config(state=tk.NORMAL)
+        else:
+            calculate_button.config(state=tk.DISABLED)
+
     file_path = choose_file()
     if file_path:
         df = pd.read_excel(file_path, header=None)
@@ -240,18 +249,22 @@ def on_file_select():
         canvas.draw()
         canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=1)
 
+        vcmd = (frame.register(validate_input), '%P')
         p_label = ttk.Label(frame, text="Enter p:")
         p_label.pack(side=tk.LEFT, padx=5)
-        p_entry = ttk.Entry(frame)
+        p_entry = ttk.Entry(frame, validate='key', validatecommand=vcmd)
         p_entry.pack(side=tk.LEFT, padx=5)
+        p_entry.bind('<KeyRelease>', check_entries)
 
         q_label = ttk.Label(frame, text="Enter q:")
         q_label.pack(side=tk.LEFT, padx=5)
-        q_entry = ttk.Entry(frame)
+        q_entry = ttk.Entry(frame, validate='key', validatecommand=vcmd)
         q_entry.pack(side=tk.LEFT, padx=5)
+        q_entry.bind('<KeyRelease>', check_entries)
 
         calculate_button = ttk.Button(frame, text="Calculate", command=lambda: calculate_forecast(p_entry.get(), q_entry.get(), df))
         calculate_button.pack(side=tk.LEFT, padx=5)
+        calculate_button.config(state=tk.DISABLED)
 
 def main():
     window = tk.Tk()
