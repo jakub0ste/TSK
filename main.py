@@ -308,7 +308,8 @@ def auto_select_and_calculate(df):
 def main():
     window = tk.Tk()
     window.title("ACF and PACF Plotter")
-    window.geometry("1920x900")
+    window.geometry("1280x720")
+    window.state('zoomed')
 
     global frame
     frame = ttk.Frame(window, padding="10")
