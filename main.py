@@ -164,34 +164,30 @@ def difference(data, d):
         diff_data = np.diff(diff_data)
     return pd.DataFrame(diff_data, columns=['Value'])
 
+
 def calculate_forecast(p, q, df):
     p = int(p)
     q = int(q)
     df_Values = df['Value']
     d = find_d(df_Values.dropna())
-    arima_model = PredykcjaPKB(p, d, q)
-    predictions, forecast = arima_model.calculate(df)
-    overlap = arima_model.calculate_overlap(df)
 
-    fig, ax = plt.subplots(figsize=(10, 6))
+    # Użycie bibliotecznej funkcji ARIMA
+    model = ARIMA(df['Value'], order=(p, d, q))
+    results = model.fit()
+
+    # Przewidywanie wartości
+    forecast_steps = 5
+    forecast = results.forecast(steps=forecast_steps)
+
+    # Przygotowanie danych do wykresu
     forecast_years = np.arange(df.index[-1] + 1, df.index[-1] + 1 + len(forecast))
     combined_years = np.concatenate([df.index, forecast_years])
     combined_values = np.concatenate([df['Value'].values, forecast])
 
-    test_index = np.arange(df.index[-1], df.index[-1] + 1 + len(predictions))
-    testList = list()
-    testList.append(df['Value'].iloc[-1])
-    testList.append(predictions[-1])
-    test_values = pd.Series(testList, index=test_index[0:])
-
+    fig, ax = plt.subplots(figsize=(10, 6))
     ax.plot(combined_years, combined_values, label='Combined Forecasts', color='red')
     ax.plot(df.index, df['Value'], label='Original Values')
-    ax.plot(test_index, test_values, linestyle='-.')
-
     ax.plot(forecast_years, forecast, label='ARIMA Forecasts', linestyle=':')
-    overlap_index = np.arange(df.index[arima_model.p + arima_model.d + 1],
-                              df.index[arima_model.p + arima_model.d + 1] + len(overlap))
-    ax.plot(overlap_index, overlap, label='ARIMA Overlap Forecasts', linestyle='--')
     ax.grid()
     ax.legend()
     ax.set_title("Comparison of Original Values and ARIMA Forecasts")
@@ -203,7 +199,8 @@ def calculate_forecast(p, q, df):
 
     # Use mplcursors to display annotations on hover
     cursor = mplcursors.cursor(scatter, hover=True)
-    cursor.connect("add", lambda sel: sel.annotation.set_text(f'{forecast_years[sel.index]}: {forecast[sel.index]:.2f} zł'))
+    cursor.connect("add",
+                   lambda sel: sel.annotation.set_text(f'{forecast_years[sel.index]}: {forecast[sel.index]:.2f} zł'))
 
     for widget in frame.winfo_children():
         widget.destroy()
