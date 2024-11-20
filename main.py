@@ -8,6 +8,9 @@ from tkinter import filedialog, ttk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import mplcursors
 
+import itertools
+from statsmodels.tsa.arima.model import ARIMA
+
 class PredykcjaPKB:
     def __init__(self, p, d, q):
         self.p = p
@@ -217,6 +220,25 @@ def calculate_forecast(p, q, df):
         tree.insert('', 'end', values=(year, f'{value:.2f} zł'))
     tree.pack(side=tk.BOTTOM, pady=10)
 
+def auto_select_params(df):
+    best_aic = float('inf')
+    best_params = (0, 0)
+    d = find_d(df['Value'].dropna())
+    with open('params_aic_log.txt', 'w') as file:
+        file.write("p, q, AIC\n")
+        for p, q in itertools.product(range(6), repeat=2):
+            try:
+                model = ARIMA(df['Value'], order=(p, d, q))
+                results = model.fit()
+                aic = results.aic
+                file.write(f"{p}, {q}, {aic}\n")
+                if aic < best_aic:
+                    best_aic = aic
+                    best_params = (p, q)
+            except:
+                continue
+    return best_params
+
 def on_file_select():
     def validate_input(new_value):
         return new_value.isdigit() and 0 <= int(new_value) <= 9
@@ -265,6 +287,14 @@ def on_file_select():
         calculate_button = ttk.Button(frame, text="Calculate", command=lambda: calculate_forecast(p_entry.get(), q_entry.get(), df))
         calculate_button.pack(side=tk.LEFT, padx=5)
         calculate_button.config(state=tk.DISABLED)
+
+        auto_button = ttk.Button(frame, text="Auto", command=lambda: auto_select_and_calculate(df))
+        auto_button.pack(side=tk.LEFT, padx=5)
+
+def auto_select_and_calculate(df):
+    p, q = auto_select_params(df)
+    print(f"Selected parameters: p = {p}, q = {q}")
+    calculate_forecast(p, q, df)
 
 def main():
     window = tk.Tk()
