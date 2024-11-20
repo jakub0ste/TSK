@@ -218,7 +218,15 @@ def calculate_forecast(p, q, df):
     tree.heading('Value', text='Value (zł)')
     for year, value in zip(forecast_years, forecast):
         tree.insert('', 'end', values=(year, f'{value:.2f} zł'))
-    tree.pack(side=tk.BOTTOM, pady=10)
+    tree.pack(side=tk.LEFT, pady=10)
+
+    # Display final p and q values
+    pq_frame = ttk.Frame(frame)
+    pq_frame.pack(side=tk.RIGHT, padx=10)
+    p_label = ttk.Label(pq_frame, text=f"Final p: {p}")
+    p_label.pack()
+    q_label = ttk.Label(pq_frame, text=f"Final q: {q}")
+    q_label.pack()
 
 def auto_select_params(df):
     best_aic = float('inf')
@@ -295,6 +303,7 @@ def auto_select_and_calculate(df):
     p, q = auto_select_params(df)
     print(f"Selected parameters: p = {p}, q = {q}")
     calculate_forecast(p, q, df)
+
 
 def main():
     window = tk.Tk()
